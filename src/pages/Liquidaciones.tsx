@@ -4,6 +4,7 @@ import { supabase, type Cupon, type Gasto, type Liquidacion, type Pago, type Pro
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GastoModal } from '@/components/GastoModal';
 import {
   CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
   montoEsperado, notificar, periodoActual, periodoLabel, periodoSiguiente, reabrirLiquidacion, registrarPago, round2,
@@ -196,7 +197,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
 
   const totalesPorCat = useMemo(() => {
     const t: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-    for (const g of gastos) t[g.categoria] += Number(g.monto);
+    for (const g of gastos) { t.A += Number(g.monto_a); t.B += Number(g.monto_b); t.C += Number(g.monto_c); t.D += Number(g.monto_d); }
     return t;
   }, [gastos]);
   const totalGastos = round2(totalesPorCat.A + totalesPorCat.B + totalesPorCat.C + totalesPorCat.D);
@@ -443,25 +444,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
         </Card>
       )}
 
-      {/* Modal nuevo gasto */}
-      <Modal open={gastoModal} onClose={() => setGastoModal(false)} title="Agregar gasto al período" size="lg">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2"><Input label="Descripción" value={gastoForm.descripcion} onChange={(v) => setGastoForm({ ...gastoForm, descripcion: v })} required /></div>
-          <Select label="Rubro" value={gastoForm.rubro_id} onChange={(v) => setGastoForm({ ...gastoForm, rubro_id: v })} placeholder="— Elegir —"
-            options={rubros.map((r) => ({ value: r.id, label: r.nombre }))} />
-          <Select label="Proveedor" value={gastoForm.proveedor_id} onChange={(v) => setGastoForm({ ...gastoForm, proveedor_id: v })} placeholder="— Sin proveedor —"
-            options={proveedores.map((p) => ({ value: p.id, label: p.nombre }))} />
-          <Select label="Categoría de prorrateo" value={gastoForm.categoria} onChange={(v) => setGastoForm({ ...gastoForm, categoria: v })}
-            options={CATEGORIAS.map((c) => ({ value: c.key, label: catLabel(c.key) }))} />
-          <Input label="Monto" type="number" step="0.01" value={gastoForm.monto} onChange={(v) => setGastoForm({ ...gastoForm, monto: v })} required />
-          <Input label="Fecha" type="date" value={gastoForm.fecha} onChange={(v) => setGastoForm({ ...gastoForm, fecha: v })} />
-          <Input label="N° comprobante" value={gastoForm.comprobante} onChange={(v) => setGastoForm({ ...gastoForm, comprobante: v })} />
-        </div>
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="secondary" onClick={() => setGastoModal(false)}>Cancelar</Button>
-          <Button onClick={agregarGasto} disabled={busy}>Agregar</Button>
-        </div>
-      </Modal>
+
 
       {/* Modal cobrar cupón */}
       <Modal open={!!pagoModal} onClose={() => setPagoModal(null)} title={`Cobrar UF ${pagoModal?.unidades?.uf} · ${pagoModal?.unidades?.depto}`}>
