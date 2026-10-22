@@ -4,6 +4,7 @@ import { supabase, type Gasto, type Liquidacion, type Proveedor, type Rubro } fr
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { GastoModal } from '@/components/GastoModal';
 import { CATEGORIAS, fmtDate, fmtMoney, hoyISO } from '@/lib/engine';
 
 /** Gastos cargados que todavía no fueron vinculados a ninguna liquidación. */
@@ -103,23 +104,8 @@ export function GastosPendientes() {
         </Card>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nuevo gasto pendiente" size="lg">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2"><Input label="Descripción" value={form.descripcion} onChange={(v) => setForm({ ...form, descripcion: v })} required /></div>
-          <Select label="Rubro" value={form.rubro_id} onChange={(v) => setForm({ ...form, rubro_id: v })} placeholder="— Elegir —" options={rubros.map((r) => ({ value: r.id, label: r.nombre }))} />
-          <Select label="Proveedor" value={form.proveedor_id} onChange={(v) => setForm({ ...form, proveedor_id: v })} placeholder="— Sin proveedor —" options={proveedores.map((p) => ({ value: p.id, label: p.nombre }))} />
-          <Select label="Categoría" value={form.categoria} onChange={(v) => setForm({ ...form, categoria: v })} options={CATEGORIAS.map((c) => ({ value: c.key, label: c.label }))} />
-          <Input label="Monto" type="number" step="0.01" value={form.monto} onChange={(v) => setForm({ ...form, monto: v })} required />
-          <Input label="Fecha" type="date" value={form.fecha} onChange={(v) => setForm({ ...form, fecha: v })} />
-          <Input label="N° comprobante" value={form.comprobante} onChange={(v) => setForm({ ...form, comprobante: v })} />
-          <Input label="CAE" value={form.cae} onChange={(v) => setForm({ ...form, cae: v })} />
-        </div>
-        {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
-        <div className="flex justify-end gap-2 mt-5">
-          <Button variant="secondary" onClick={() => setModal(false)}>Cancelar</Button>
-          <Button onClick={save}>Guardar</Button>
-        </div>
-      </Modal>
+      <GastoModal open={modal} onClose={() => setModal(false)}
+        consorcioId={consorcio.id} liquidacionId={null} onSaved={load} />
 
       <ConfirmDialog open={!!deleteTarget} title="Eliminar gasto" message={`¿Eliminar "${deleteTarget?.descripcion}"?`}
         onCancel={() => setDeleteTarget(null)}
