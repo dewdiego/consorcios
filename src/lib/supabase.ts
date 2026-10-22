@@ -58,6 +58,7 @@ export type Liquidacion = {
   recargo_2do_venc_pct: number; interes_mora_pct: number;
   total_gastos: number; total_distribuido: number;
   cerrada_por: string | null; cerrada_at: string | null; enviada_at: string | null;
+  pdf_path: string | null;
   notas: string | null; created_at: string;
   consorcios?: Consorcio;
 };
@@ -143,6 +144,8 @@ export type Consulta = {
 export type Comunicado = {
   id: string; consorcio_id: string | null; seccion: 'novedades' | 'comunicados' | 'muro'; tipo: string;
   titulo: string; contenido: string; fijado: boolean; activo: boolean; fecha_publicacion: string; created_at: string;
+  numero: number | null; estado: 'borrador' | 'programado' | 'enviado'; etiquetas: string | null;
+  destinatarios: 'todos' | 'propietarios' | 'inquilinos'; programado_at: string | null; ultimo_envio: string | null; adjunto_path: string | null;
   consorcios?: Consorcio;
 };
 

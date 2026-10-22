@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GastoModal } from '@/components/GastoModal';
+import { EnvioExpensas } from '@/components/EnvioExpensas';
 import {
   CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
   montoEsperado, notificar, periodoActual, periodoLabel, periodoSiguiente, reabrirLiquidacion, registrarPago, round2,
@@ -343,7 +344,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
             <Badge color={estadoLiq[liq.estado].color}>{estadoLiq[liq.estado].label}</Badge>
             {abierta && <Button variant="secondary" onClick={previsualizar} disabled={busy}><RefreshCw size={15} /> Generar cupones</Button>}
             {abierta && <Button onClick={cerrar} disabled={busy}><Lock size={15} /> Cerrar período</Button>}
-            {liq.estado === 'cerrada' && <Button onClick={enviar} disabled={busy}><Send size={15} /> Enviar</Button>}
+            {!abierta && <Button onClick={() => setTab('envios')}><Send size={15} /> Enviar</Button>}
             {!abierta && <Button variant="secondary" onClick={reabrir} disabled={busy}><Unlock size={15} /> Reabrir</Button>}
           </div>
         } />
@@ -366,6 +367,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
         { key: 'gastos', label: 'Gastos', badge: gastos.length },
         { key: 'cupones', label: 'Cupones', badge: cupones.length },
         { key: 'cobranza', label: 'Cobranza', badge: pagos.length },
+        { key: 'envios', label: 'Envío por mail' },
       ]} />
 
       {loading ? <Spinner /> : tab === 'gastos' ? (
@@ -421,6 +423,8 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
             </Table>
           )}
         </Card>
+      ) : tab === 'envios' ? (
+        <EnvioExpensas liq={liq} cupones={cupones} consorcioNombre={consorcio?.nombre || ''} onChange={loadAll} />
       ) : (
         <Card>
           {pagos.length === 0 ? (
