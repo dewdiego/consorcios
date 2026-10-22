@@ -91,7 +91,7 @@ export function Noticias() {
           <Select label="Consorcio" value={form.consorcio_id} onChange={(v) => setForm({ ...form, consorcio_id: v })} placeholder="Todos los consorcios"
             options={consorcios.map((c) => ({ value: c.id, label: c.nombre }))} />
           <Select label="Tipo" value={form.tipo} onChange={(v) => setForm({ ...form, tipo: v })}
-            options={Object.keys(tipoColor).map((t) => ({ value: t, label: t }))} />
+            options={Object.keys(tipoColor).map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))} />
         </div>
         <div className="space-y-4">
           <Input label="Título" value={form.titulo} onChange={(v) => setForm({ ...form, titulo: v })} required />

@@ -444,7 +444,9 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
         </Card>
       )}
 
-
+      {/* Modal nuevo gasto */}
+      <GastoModal open={gastoModal} onClose={() => setGastoModal(false)}
+        consorcioId={liq.consorcio_id} liquidacionId={liq.id} onSaved={loadAll} />
 
       {/* Modal cobrar cupón */}
       <Modal open={!!pagoModal} onClose={() => setPagoModal(null)} title={`Cobrar UF ${pagoModal?.unidades?.uf} · ${pagoModal?.unidades?.depto}`}>

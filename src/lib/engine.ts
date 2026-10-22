@@ -131,7 +131,7 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
   const us = unidades as Unidad[];
   const advertencias = validarCoeficientes(us, gs);
 
-  const totalPorCat: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };  
+  const totalPorCat: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   for (const g of gs) { totalPorCat.A += Number(g.monto_a); totalPorCat.B += Number(g.monto_b); totalPorCat.C += Number(g.monto_c); totalPorCat.D += Number(g.monto_d); }
   const totalGastos = round2(totalPorCat.A + totalPorCat.B + totalPorCat.C + totalPorCat.D);
 

@@ -69,6 +69,8 @@ export type Gasto = {
   rubro_id: string | null; descripcion: string; categoria: Categoria; monto: number; fecha: string;
   comprobante: string | null; cae: string | null; pagado: boolean; fecha_pago: string | null;
   orden_pago_id: string | null; created_at: string;
+  monto_a: number; monto_b: number; monto_c: number; monto_d: number;
+  periodo_facturado: string | null; tipo_comprobante: string; recurrente: boolean; extraordinario: boolean; notas: string | null;
   proveedores?: Proveedor; rubros?: Rubro; consorcios?: Consorcio;
 };
 
