@@ -51,7 +51,7 @@ export function AccionesMasivas() {
       const periodo = propias[0] ? periodoSiguiente(propias[0].periodo) : periodoActual();
       if (propias.some((l) => l.periodo === periodo)) continue;
       const [y, m] = periodo.split('-').map(Number);
-      const fv = (dia: number) => new Date(y, m, Math.min(dia, 28)).toISOString().slice(0, 10);
+      const fv = (dia: number) => new Date(y, m, Math.min(Number(dia) || 10, 28)).toISOString().slice(0, 10);
       const { error } = await supabase.from('liquidaciones').insert({
         consorcio_id: c.id, periodo,
         fecha_vencimiento_1: fv(c.dia_vencimiento_1), fecha_vencimiento_2: fv(c.dia_vencimiento_2),

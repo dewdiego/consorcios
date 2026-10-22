@@ -48,7 +48,7 @@ export function Liquidaciones() {
     const periodo = ultimo ? periodoSiguiente(ultimo) : periodoActual();
     const [y, m] = periodo.split('-').map(Number);
     const fv = (dia: number) => {
-      const next = new Date(y, m, Math.min(dia, 28)); // vence el mes siguiente al período liquidado
+      const next = new Date(y, m, Math.min(Number(dia) || 10, 28)); // vence el mes siguiente al período liquidado
       return next.toISOString().slice(0, 10);
     };
     const { data, error } = await supabase.from('liquidaciones').insert({
