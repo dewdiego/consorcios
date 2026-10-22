@@ -100,7 +100,7 @@ export type ResultadoLiquidacion = {
 export function validarCoeficientes(unidades: Unidad[], gastos: Gasto[]): string[] {
   const adv: string[] = [];
   for (const cat of CATEGORIAS) {
-    const totalCat = gastos.filter((g) => g.categoria === cat.key).reduce((a, g) => a + Number(g.monto), 0);
+    const totalCat = gastos.reduce((a, g) => a + Number(g[`monto_${cat.key.toLowerCase()}` as 'monto_a']), 0);
     if (totalCat <= 0) continue;
     const sumCoef = unidades.filter((u) => u.activo).reduce((a, u) => a + Number(u[cat.coef]), 0);
     if (Math.abs(sumCoef - 100) > 0.05) {
@@ -131,8 +131,8 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
   const us = unidades as Unidad[];
   const advertencias = validarCoeficientes(us, gs);
 
-  const totalPorCat: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
-  for (const g of gs) totalPorCat[g.categoria] += Number(g.monto);
+  const totalPorCat: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };  
+  for (const g of gs) { totalPorCat.A += Number(g.monto_a); totalPorCat.B += Number(g.monto_b); totalPorCat.C += Number(g.monto_c); totalPorCat.D += Number(g.monto_d); }
   const totalGastos = round2(totalPorCat.A + totalPorCat.B + totalPorCat.C + totalPorCat.D);
 
   const recargoPct = Number(consorcio.recargo_2do_venc_pct) || 0;
