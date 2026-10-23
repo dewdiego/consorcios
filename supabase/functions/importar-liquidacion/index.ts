@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 // Edge Function: interpreta el texto de una liquidación de expensas (formato "Mis Expensas" GCABA, de
 // cualquier sistema: Octavo Piso, Roman, Sistemas Administrativos, etc.) y devuelve los datos estructurados.
 // Secretos: GEMINI_API_KEY (gratis, Google AI Studio) o ANTHROPIC_API_KEY. Si están los dos, se usa Gemini.
-// Opcionales: GEMINI_MODEL (default gemini-2.5-flash), ANTHROPIC_MODEL (default claude-sonnet-5-5)
+// Opcionales: GEMINI_MODEL (default gemini-3.8-flash), ANTHROPIC_MODEL (default claude-sonnet-5-5)
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -133,22 +133,25 @@ Reglas:
 - totales.gastos = total general de gastos; totales.distribuido = total de la columna TOTAL de la planilla de UF.
 - Si algo no está, usá null o 0. Anotá en observaciones cualquier duda relevante.`;
 
+  // El trabajo puede tardar más de 150 s (límite de inactividad de Supabase): se responde en streaming
+  // mandando un espacio cada 10 s mientras se espera a la IA, y al final el JSON.
+  const trabajo = async (): Promise<unknown> => {
   // ---- Gemini (gratis con API key de Google AI Studio) ----
   if (GEMINI_KEY) {
-    const MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+    const MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-3.8-flash';
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_KEY}`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: `Texto de la liquidación:\n\n${texto}` }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 32000, responseMimeType: 'application/json', responseSchema: schemaGemini(SCHEMA) },
+        generationConfig: { temperature: 0, maxOutputTokens: 20000, responseMimeType: 'application/json', responseSchema: schemaGemini(SCHEMA) },
       }),
     });
     const data = await r.json();
-    if (!r.ok) return json({ error: data?.error?.message || `Gemini respondió ${r.status}` }, 500);
+    if (!r.ok) return { error: data?.error?.message || `Gemini respondió ${r.status}` };
     const txt = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '';
-    try { return json({ resultado: JSON.parse(txt), modelo: MODEL, tokens: data.usageMetadata }); }
-    catch { return json({ error: 'Gemini devolvió una respuesta que no se pudo interpretar. Probá de nuevo.' }, 500); }
+    try { return { resultado: JSON.parse(txt), modelo: MODEL, tokens: data.usageMetadata }; }
+    catch { return { error: 'Gemini devolvió una respuesta que no se pudo interpretar. Probá de nuevo.' }; }
   }
 
   // ---- Anthropic ----
@@ -164,8 +167,23 @@ Reglas:
     }),
   });
   const data = await r.json();
-  if (!r.ok) return json({ error: data?.error?.message || `Anthropic respondió ${r.status}` }, 500);
+  if (!r.ok) return { error: data?.error?.message || `Anthropic respondió ${r.status}` };
   const tool = (data.content || []).find((c: { type: string }) => c.type === 'tool_use');
-  if (!tool) return json({ error: 'No se pudo interpretar la liquidación.' }, 500);
-  return json({ resultado: tool.input, modelo: MODEL, tokens: data.usage });
+  if (!tool) return { error: 'No se pudo interpretar la liquidación.' };
+  return { resultado: tool.input, modelo: MODEL, tokens: data.usage };
+  };
+
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      const latido = setInterval(() => { try { ctrl.enqueue(enc.encode(' ')); } catch { /* cerrado */ } }, 10000);
+      try {
+        const res = await trabajo();
+        ctrl.enqueue(enc.encode('\n' + JSON.stringify(res)));
+      } catch (e) {
+        ctrl.enqueue(enc.encode('\n' + JSON.stringify({ error: e instanceof Error ? e.message : String(e) })));
+      } finally { clearInterval(latido); ctrl.close(); }
+    },
+  });
+  return new Response(stream, { headers: { ...cors, 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' } });
 });

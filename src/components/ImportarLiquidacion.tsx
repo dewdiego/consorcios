@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { AlertTriangle, CheckCircle2, FileSearch, Upload } from 'lucide-react';
-import { supabase, type Rubro } from '@/lib/supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, type Rubro } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Input, Modal, Spinner, Table, Td, Tabs } from '@/components/ui';
 import { extraerTextoPdf } from '@/lib/pdfText';
@@ -77,16 +77,18 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       const texto = await extraerTextoPdf(archivo, (p, t) => setProgreso(`Leyendo página ${p} de ${t}…`));
       const { data: rubros } = await supabase.from('rubros').select('nombre').order('orden');
       setProgreso('Interpretando la liquidación (puede tardar hasta un minuto)…');
-      const { data, error: fErr } = await supabase.functions.invoke('importar-liquidacion', {
-        body: { texto, rubros: (rubros || []).map((r) => r.nombre) },
+      // Llamada directa (la función responde en streaming para no superar el límite de 150 s de Supabase)
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/importar-liquidacion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ texto, rubros: (rubros || []).map((r) => r.nombre) }),
       });
-      if (fErr) {
-        let detalle = '';
-        try { const ctx = (fErr as { context?: Response }).context; if (ctx) { const t = await ctx.text(); try { detalle = JSON.parse(t).error || t; } catch { detalle = t; } } } catch { /* noop */ }
-        throw new Error(`No se pudo ejecutar la función importar-liquidacion${detalle ? `: ${detalle}` : ''}. ` +
-          (detalle ? '' : 'Revisá que exista en Supabase → Edge Functions con ese nombre exacto y que tenga el secreto GEMINI_API_KEY.'));
-      }
-      if (data?.error) throw new Error(data.error);
+      const crudo = (await resp.text()).trim();
+      let data: { resultado?: Resultado; error?: string } = {};
+      try { data = JSON.parse(crudo.slice(crudo.lastIndexOf('\n') + 1) || crudo); } catch { data = { error: crudo.slice(0, 300) || `La función respondió ${resp.status}` }; }
+      if (!resp.ok && !data.error) data.error = `La función respondió ${resp.status}. Revisá que exista en Supabase → Edge Functions con ese nombre exacto.`;
+      if (data.error) throw new Error(`No se pudo ejecutar la función importar-liquidacion: ${data.error}`);
       const r = data.resultado as Resultado;
       if (!r?.unidades?.length) throw new Error('No se encontró la planilla de unidades en el PDF.');
       r.unidades.sort((a, b) => a.uf - b.uf);
