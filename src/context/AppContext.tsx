@@ -1,13 +1,20 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase, type Consorcio } from '@/lib/supabase';
+
+type EstadoAuth = 'cargando' | 'anonimo' | 'sin_permiso' | 'ok';
 
 type AppCtx = {
   consorcios: Consorcio[];
   consorcio: Consorcio | null;             // consorcio activo (contexto de trabajo)
   setConsorcioId: (id: string | null) => void;
   reloadConsorcios: () => Promise<void>;
-  usuario: string;                          // nombre del operador (para auditoría simple)
+  usuario: string;                          // nombre del operador logueado (para auditoría)
   setUsuario: (n: string) => void;
+  email: string;
+  rol: string;
+  estadoAuth: EstadoAuth;
+  cerrarSesion: () => Promise<void>;
 };
 
 const Ctx = createContext<AppCtx>(null as unknown as AppCtx);
@@ -17,30 +24,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [consorcioId, setConsorcioIdState] = useState<string | null>(() => {
     try { return localStorage.getItem('consorcio_activo'); } catch { return null; }
   });
-  const [usuario, setUsuarioState] = useState<string>(() => {
-    try { return localStorage.getItem('usuario_nombre') || 'Administrador'; } catch { return 'Administrador'; }
-  });
+  const [usuario, setUsuarioState] = useState('Administrador');
+  const [email, setEmail] = useState('');
+  const [rol, setRol] = useState('');
+  const [estadoAuth, setEstadoAuth] = useState<EstadoAuth>('cargando');
 
   const reloadConsorcios = async () => {
     const { data } = await supabase.from('consorcios').select('*').order('nombre');
     setConsorcios((data as Consorcio[]) || []);
   };
 
-  useEffect(() => { reloadConsorcios(); }, []);
+  /** Con sesión: verifica que el mail sea un operador habilitado (tabla usuarios) */
+  const resolverSesion = async (session: Session | null) => {
+    if (!session?.user?.email) { setEstadoAuth('anonimo'); setEmail(''); setConsorcios([]); return; }
+    const mail = session.user.email.toLowerCase();
+    setEmail(mail);
+    // Con las políticas cerradas, un vecino logueado no puede leer "usuarios" → data vacía → sin permiso
+    const { data } = await supabase.from('usuarios').select('nombre, rol, activo').ilike('email', mail).maybeSingle();
+    if (!data || !data.activo) { setEstadoAuth('sin_permiso'); return; }
+    setUsuarioState(data.nombre || mail);
+    setRol(data.rol || 'operador');
+    setEstadoAuth('ok');
+    await reloadConsorcios();
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => resolverSesion(session));
+    const { data: sub } = supabase.auth.onAuthStateChange((evento, session) => {
+      if (evento === 'SIGNED_IN' || evento === 'SIGNED_OUT' || evento === 'USER_UPDATED') resolverSesion(session);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   const setConsorcioId = (id: string | null) => {
     setConsorcioIdState(id);
     try { id ? localStorage.setItem('consorcio_activo', id) : localStorage.removeItem('consorcio_activo'); } catch { /* noop */ }
   };
 
-  const setUsuario = (n: string) => {
-    setUsuarioState(n);
-    try { localStorage.setItem('usuario_nombre', n); } catch { /* noop */ }
-  };
+  const cerrarSesion = async () => { await supabase.auth.signOut(); setEstadoAuth('anonimo'); };
 
   const consorcio = consorcios.find((c) => c.id === consorcioId) || null;
 
-  return <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario: setUsuarioState, email, rol, estadoAuth, cerrarSesion }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export const useApp = () => useContext(Ctx);

@@ -22,6 +22,18 @@ const aTexto = (html: string) => html
   .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
+// Verifica que quien llama sea un operador habilitado (tabla usuarios)
+async function esAdmin(req: Request): Promise<{ ok: boolean; email: string }> {
+  const auth = req.headers.get('Authorization') || '';
+  if (!auth.startsWith('Bearer ')) return { ok: false, email: '' };
+  const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user?.email) return { ok: false, email: '' };
+  const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data } = await sb.from('usuarios').select('id').ilike('email', user.email).eq('activo', true).maybeSingle();
+  return { ok: !!data, email: user.email.toLowerCase() };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
 
@@ -44,6 +56,8 @@ Deno.serve(async (req) => {
   let body: { test_email?: string } = {};
   try { body = await req.json(); } catch { /* sin body */ }
   if (body?.test_email) {
+    const adm = await esAdmin(req);
+    if (!adm.ok) return json({ error: 'Sólo un operador logueado puede mandar mails de prueba.' }, 403);
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },

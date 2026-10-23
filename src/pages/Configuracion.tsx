@@ -5,12 +5,11 @@ import { Button, Card, Input, PageHeader, Spinner } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
 
 export function Configuracion() {
-  const { usuario, setUsuario } = useApp();
+  const { usuario } = useApp();
   const [admin, setAdmin] = useState<Administracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [operador, setOperador] = useState(usuario);
 
   const load = async () => {
     setLoading(true);
@@ -25,7 +24,6 @@ export function Configuracion() {
     setSaving(true);
     const { id, ...payload } = admin;
     await supabase.from('administracion').update(payload).eq('id', id);
-    setUsuario(operador.trim() || 'Administrador');
     setSaving(false);
     setMsg('Configuración guardada.');
     setTimeout(() => setMsg(''), 2500);
@@ -81,9 +79,7 @@ export function Configuracion() {
             <Input label="Teléfono" value={admin.telefono || ''} onChange={(v) => setAdmin({ ...admin, telefono: v })} />
             <div className="sm:col-span-2"><Input label="Dirección" value={admin.direccion || ''} onChange={(v) => setAdmin({ ...admin, direccion: v })} /></div>
           </div>
-          <div className="mt-5 pt-4 border-t border-slate-100">
-            <Input label="Nombre del operador (firma cierres de liquidación y cobranzas)" value={operador} onChange={setOperador} />
-          </div>
+          <p className="mt-5 pt-4 border-t border-slate-100 text-xs text-slate-400">Operador actual: <b className="text-slate-600">{usuario}</b>. El nombre se toma de Mi Administración → Usuarios.</p>
         </Card>
 
         <Card className="p-5">

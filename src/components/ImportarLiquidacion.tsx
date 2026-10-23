@@ -80,7 +80,12 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       const { data, error: fErr } = await supabase.functions.invoke('importar-liquidacion', {
         body: { texto, rubros: (rubros || []).map((r) => r.nombre) },
       });
-      if (fErr) throw new Error('No se pudo llamar a la función importar-liquidacion. ¿Está instalada en Supabase con el secreto GEMINI_API_KEY?');
+      if (fErr) {
+        let detalle = '';
+        try { const ctx = (fErr as { context?: Response }).context; if (ctx) { const t = await ctx.text(); try { detalle = JSON.parse(t).error || t; } catch { detalle = t; } } } catch { /* noop */ }
+        throw new Error(`No se pudo ejecutar la función importar-liquidacion${detalle ? `: ${detalle}` : ''}. ` +
+          (detalle ? '' : 'Revisá que exista en Supabase → Edge Functions con ese nombre exacto y que tenga el secreto GEMINI_API_KEY.'));
+      }
       if (data?.error) throw new Error(data.error);
       const r = data.resultado as Resultado;
       if (!r?.unidades?.length) throw new Error('No se encontró la planilla de unidades en el PDF.');

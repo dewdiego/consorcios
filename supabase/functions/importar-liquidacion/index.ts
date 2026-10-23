@@ -1,3 +1,4 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
 // Edge Function: interpreta el texto de una liquidación de expensas (formato "Mis Expensas" GCABA, de
 // cualquier sistema: Octavo Piso, Roman, Sistemas Administrativos, etc.) y devuelve los datos estructurados.
 // Secretos: GEMINI_API_KEY (gratis, Google AI Studio) o ANTHROPIC_API_KEY. Si están los dos, se usa Gemini.
@@ -84,8 +85,22 @@ function schemaGemini(node: unknown): unknown {
   return node;
 }
 
+// Verifica que quien llama sea un operador habilitado (tabla usuarios)
+async function esAdmin(req: Request): Promise<{ ok: boolean; email: string }> {
+  const auth = req.headers.get('Authorization') || '';
+  if (!auth.startsWith('Bearer ')) return { ok: false, email: '' };
+  const userClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: auth } } });
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user?.email) return { ok: false, email: '' };
+  const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data } = await sb.from('usuarios').select('id').ilike('email', user.email).eq('activo', true).maybeSingle();
+  return { ok: !!data, email: user.email.toLowerCase() };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  const adm = await esAdmin(req);
+  if (!adm.ok) return json({ error: 'Tenés que estar logueado como operador para importar.' }, 403);
   const GEMINI_KEY = Deno.env.get('GEMINI_API_KEY');
   const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY');
   if (!GEMINI_KEY && !ANTHROPIC_KEY) return json({ error: 'Falta el secreto GEMINI_API_KEY (o ANTHROPIC_API_KEY) en Supabase.' }, 500);

@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from 'react';
 import {
   Archive, BarChart3, Bell, Building2, CalendarDays, ChevronDown, ChevronRight, ClipboardList,
-  FileBarChart, LayoutDashboard, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
+  FileBarChart, LayoutDashboard, LogOut, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
   Truck, Users, Vote, WalletCards, Wrench, Zap,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
@@ -89,7 +89,7 @@ export const PAGES_POR_CONSORCIO = new Set<PageKey>(
 );
 
 export function Layout({ page, onNavigate, children }: { page: PageKey; onNavigate: (p: PageKey) => void; children: ReactNode }) {
-  const { consorcios, consorcio, setConsorcioId } = useApp();
+  const { consorcios, consorcio, setConsorcioId, usuario, cerrarSesion } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>(() => NAV.filter((e) => e.children?.some((c) => c.key === page)).map((e) => e.label));
 
@@ -168,9 +168,11 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
             <button onClick={() => go('config')} className="p-2 rounded-full hover:bg-white/15" title="Configuración">
               <Settings size={18} />
             </button>
-            <button onClick={() => go('usuarios')} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm font-semibold" title="Usuarios">
-              <Users size={15} />
+            <button onClick={() => go('usuarios')} className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-sm" title="Usuarios">
+              <span className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center"><Users size={13} /></span>
+              <span className="hidden sm:inline max-w-[140px] truncate">{usuario}</span>
             </button>
+            <button onClick={cerrarSesion} className="p-2 rounded-full hover:bg-white/15" title="Cerrar sesión"><LogOut size={18} /></button>
           </div>
         </header>
 

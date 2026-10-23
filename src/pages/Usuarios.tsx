@@ -32,7 +32,7 @@ export function Usuarios() {
 
   return (
     <div>
-      <PageHeader title="Usuarios" subtitle="Equipo de la administración (la app no exige login; esto es el padrón de operadores)"
+      <PageHeader title="Usuarios" subtitle="Operadores habilitados para entrar a la app. Cada uno necesita además su cuenta (mail + contraseña) creada en Supabase → Authentication → Users"
         action={<Button onClick={() => { setEditing(null); setForm({ nombre: '', email: '', rol: 'operador', activo: true }); setError(''); setModal(true); }}><Plus size={16} /> Nuevo usuario</Button>} />
 
       {loading ? <Spinner /> : items.length === 0 ? (
