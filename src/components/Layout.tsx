@@ -7,7 +7,7 @@ import {
 import { useApp } from '@/context/AppContext';
 
 export type PageKey =
-  | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'usuarios' | 'export_datos'
+  | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'envios_mail' | 'usuarios' | 'export_datos'
   | 'tablero'
   | 'acciones_masivas'
   | 'prov_listado' | 'prov_movimientos' | 'prov_documentos'
@@ -35,6 +35,7 @@ const NAV: NavEntry[] = [
     { key: 'consorcios', label: 'Consorcios' },
     { key: 'mis_facturas', label: 'Mis facturas' },
     { key: 'notificaciones', label: 'Notificaciones' },
+    { key: 'envios_mail', label: 'Envíos de mail' },
     { key: 'usuarios', label: 'Usuarios' },
     { key: 'export_datos', label: 'Export datos' },
   ] },
@@ -71,7 +72,7 @@ const NAV: NavEntry[] = [
 
 export const PAGE_TITLES: Record<PageKey, string> = {
   config: 'Configuración', consorcios: 'Consorcios', mis_facturas: 'Mis Facturas',
-  notificaciones: 'Notificaciones', usuarios: 'Usuarios', export_datos: 'Export de datos',
+  notificaciones: 'Notificaciones', envios_mail: 'Envíos de mail', usuarios: 'Usuarios', export_datos: 'Export de datos',
   tablero: 'Tablero de control', acciones_masivas: 'Acciones masivas',
   prov_listado: 'Proveedores', prov_movimientos: 'Movimientos históricos', prov_documentos: 'Certificación de proveedores',
   reportes: 'Reportes', noticias: 'Noticias', consultas: 'Consultas', reclamos: 'Reclamos', compras: 'Compras',

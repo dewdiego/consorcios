@@ -6,6 +6,7 @@ import { Configuracion } from '@/pages/Configuracion';
 import { Consorcios } from '@/pages/Consorcios';
 import { MisFacturas } from '@/pages/MisFacturas';
 import { Notificaciones } from '@/pages/Notificaciones';
+import { EnviosMail } from '@/pages/EnviosMail';
 import { Usuarios } from '@/pages/Usuarios';
 import { ExportDatos } from '@/pages/ExportDatos';
 import { AccionesMasivas } from '@/pages/AccionesMasivas';
@@ -38,6 +39,7 @@ function Pages({ page, onNavigate }: { page: PageKey; onNavigate: (p: PageKey) =
     case 'consorcios': return <Consorcios onNavigate={onNavigate} />;
     case 'mis_facturas': return <MisFacturas />;
     case 'notificaciones': return <Notificaciones />;
+    case 'envios_mail': return <EnviosMail />;
     case 'usuarios': return <Usuarios />;
     case 'export_datos': return <ExportDatos />;
     case 'acciones_masivas': return <AccionesMasivas />;

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Building2, Megaphone, Home, Users as UsersIcon, DollarSign, Plus, Pencil, Search } from 'lucide-react';
+import { Building2, Megaphone, Home, Users as UsersIcon, DollarSign, FileUp, Plus, Pencil, Search } from 'lucide-react';
 import { supabase, type Consorcio } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, Input, Modal, PageHeader, Spinner } from '@/components/ui';
 import type { PageKey } from '@/components/Layout';
+import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
 
 type Form = {
   nombre: string; direccion: string; ciudad: string; cuit: string; telefono: string; email: string;
@@ -30,6 +31,7 @@ export function Consorcios({ onNavigate }: { onNavigate?: (p: PageKey) => void }
   const [form, setForm] = useState<Form>(empty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [importar, setImportar] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -91,7 +93,12 @@ export function Consorcios({ onNavigate }: { onNavigate?: (p: PageKey) => void }
   return (
     <div>
       <PageHeader title="Consorcios" subtitle="Edificios administrados"
-        action={<Button onClick={openNew}><Plus size={16} /> Nuevo</Button>} />
+        action={<div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setImportar(true)}><FileUp size={15} /> Importar desde PDF</Button>
+          <Button onClick={openNew}><Plus size={16} /> Nuevo</Button>
+        </div>} />
+      <ImportarLiquidacion open={importar} onClose={() => setImportar(false)} consorcioId={null}
+        onImportado={async (cid) => { await load(); setConsorcioId(cid); }} />
 
       <Card className="p-4 mb-5">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">

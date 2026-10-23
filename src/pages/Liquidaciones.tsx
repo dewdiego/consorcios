@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, FileText, Lock, Plus, Receipt, RefreshCw, Send, Trash2, Unlock } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText, FileUp, Lock, Plus, Receipt, RefreshCw, Send, Trash2, Unlock } from 'lucide-react';
 import { supabase, type Cupon, type Gasto, type Liquidacion, type Pago, type Proveedor, type Rubro } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GastoModal } from '@/components/GastoModal';
 import { EnvioExpensas } from '@/components/EnvioExpensas';
+import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
 import {
   CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
   montoEsperado, notificar, periodoActual, periodoLabel, periodoSiguiente, reabrirLiquidacion, registrarPago, round2,
@@ -24,6 +25,7 @@ export function Liquidaciones() {
   const [loading, setLoading] = useState(true);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
+  const [importar, setImportar] = useState(false);
 
   const load = async () => {
     if (!consorcio) return;
@@ -76,8 +78,13 @@ export function Liquidaciones() {
   return (
     <div>
       <PageHeader title={`Expensas · ${consorcio.nombre}`} subtitle="Liquidaciones mensuales"
-        action={<Button onClick={nueva}><Plus size={16} /> Nueva liquidación</Button>} />
+        action={<div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setImportar(true)}><FileUp size={15} /> Importar PDF</Button>
+          <Button onClick={nueva}><Plus size={16} /> Nueva liquidación</Button>
+        </div>} />
       {msg && <p className="text-sm text-red-500 mb-3">{msg}</p>}
+      <ImportarLiquidacion open={importar} onClose={() => setImportar(false)} consorcioId={consorcio.id}
+        onImportado={async (_cid, liqId) => { await load(); setDetalleId(liqId); }} />
 
       {loading ? <Spinner /> : liqs.length === 0 ? (
         <Card><EmptyState icon={<Receipt size={28} />} title="Todavía no hay liquidaciones" subtitle="Creá la primera liquidación del período para empezar a cargar gastos." /></Card>

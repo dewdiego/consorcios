@@ -28,6 +28,25 @@ Deno.serve(async (req) => {
 
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const ahora = new Date().toISOString();
+  const log: string[] = [];
+  const cfg = { from: FROM, reply_to: REPLY_TO || null, limite_diario: LIMITE, por_corrida: POR_CORRIDA };
+
+  // ---- Modo prueba: manda un mail directo y devuelve la respuesta cruda de Resend ----
+  let body: { test_email?: string } = {};
+  try { body = await req.json(); } catch { /* sin body */ }
+  if (body?.test_email) {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: FROM, to: [body.test_email], subject: 'Prueba de envío · Sistema de consorcios',
+        html: `<p>Este es un mail de prueba enviado el ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}.</p><p>Si lo recibiste, el envío está funcionando.</p>`,
+        ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
+      }),
+    });
+    const resp = await r.json().catch(() => ({}));
+    return json({ prueba: true, ok: r.ok, status: r.status, respuesta_resend: resp, config: cfg });
+  }
 
   // Envíos que quedaron colgados (corrida cortada) vuelven a la cola
   const hace10 = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -46,7 +65,7 @@ Deno.serve(async (req) => {
     (await sb.from('cola_envios').select('id', { count: 'exact', head: true }).eq('estado', 'pendiente')).count || 0;
 
   if (disponibles === 0) {
-    return json({ enviados: 0, errores: 0, quedan: await contarPendientes(), enviadosHoy, limite: LIMITE, mensaje: 'Límite diario alcanzado: el resto sale mañana.' });
+    return json({ enviados: 0, errores: 0, quedan: await contarPendientes(), enviadosHoy, limite: LIMITE, mensaje: 'Límite diario alcanzado: el resto sale mañana.', config: cfg, log });
   }
 
   // Sólo los que ya pueden salir (sin programar, o con fecha programada cumplida)
@@ -54,6 +73,7 @@ Deno.serve(async (req) => {
     .eq('estado', 'pendiente')
     .or(`enviar_desde.is.null,enviar_desde.lte.${ahora}`)
     .order('created_at').limit(Math.min(disponibles, POR_CORRIDA));
+  log.push(`Pendientes listos para salir: ${pendientes?.length || 0} (cupo de hoy: ${disponibles})`);
 
   // Cada adjunto se descarga una sola vez por corrida
   const adjuntos = new Map<string, string | null>();
@@ -107,12 +127,15 @@ Deno.serve(async (req) => {
         frenado = 'Resend pidió frenar (límite alcanzado). Se sigue en la próxima corrida.';
         break;
       }
-      if (!r.ok) throw new Error(body?.message || `Resend respondió ${r.status}`);
+      if (!r.ok) throw new Error(`Resend ${r.status}: ${body?.message || body?.name || JSON.stringify(body)}`);
+      log.push(`OK → ${item.email} (id ${body.id || '?'})`);
       await sb.from('cola_envios').update({ estado: 'enviado', enviado_at: new Date().toISOString(), resend_id: body.id || null, error: null }).eq('id', item.id);
       if (item.comunicado_id) comunicadosEnviados.add(item.comunicado_id);
       enviados++;
     } catch (e) {
-      await sb.from('cola_envios').update({ estado: 'error', error: e instanceof Error ? e.message : String(e) }).eq('id', item.id);
+      const msg = e instanceof Error ? e.message : String(e);
+      await sb.from('cola_envios').update({ estado: 'error', error: msg }).eq('id', item.id);
+      log.push(`ERROR → ${item.email}: ${msg}`);
       errores++;
     }
     await sleep(600); // Resend permite ~2 por segundo
@@ -123,5 +146,5 @@ Deno.serve(async (req) => {
     await sb.from('comunicados').update({ estado: 'enviado', ultimo_envio: new Date().toISOString() }).in('id', [...comunicadosEnviados]);
   }
 
-  return json({ enviados, errores, quedan: await contarPendientes(), enviadosHoy: (enviadosHoy || 0) + enviados, limite: LIMITE, mensaje: frenado || undefined });
+  return json({ enviados, errores, quedan: await contarPendientes(), enviadosHoy: (enviadosHoy || 0) + enviados, limite: LIMITE, mensaje: frenado || undefined, config: cfg, log });
 });
