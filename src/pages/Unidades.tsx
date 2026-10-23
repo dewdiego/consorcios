@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Spinner, Table, Td } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { exportCSV, fmtPct } from '@/lib/engine';
+import { emailsConApp } from '@/lib/config';
 
 type Form = {
   uf: string; depto: string; piso: string; superficie_m2: string;
@@ -23,6 +24,7 @@ const empty: Form = {
 export function Unidades() {
   const { consorcio } = useApp();
   const [items, setItems] = useState<Unidad[]>([]);
+  const [conApp, setConApp] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [fUF, setFUF] = useState('');
   const [fProp, setFProp] = useState('');
@@ -37,8 +39,9 @@ export function Unidades() {
   const load = async () => {
     if (!consorcio) return;
     setLoading(true);
-    const { data } = await supabase.from('unidades').select('*').eq('consorcio_id', consorcio.id).order('uf');
+    const [{ data }, app] = await Promise.all([supabase.from('unidades').select('*').eq('consorcio_id', consorcio.id).order('uf'), emailsConApp(supabase)]);
     setItems((data as Unidad[]) || []);
+    setConApp(app);
     setLoading(false);
   };
   useEffect(() => { load(); }, [consorcio?.id]);
@@ -177,7 +180,8 @@ export function Unidades() {
               <tr key={u.id} className={`hover:bg-slate-50 ${!u.activo ? 'opacity-50' : ''}`}>
                 <Td className="font-mono text-xs">{String(u.uf).padStart(3, '0')}</Td>
                 <Td className="font-medium">{u.depto}{!u.activo && <Badge color="slate">inactiva</Badge>}</Td>
-                <Td>{u.propietario || <span className="text-slate-300">—</span>}{u.alquilada && <Badge color="blue">alquilada</Badge>}</Td>
+                <Td>{u.propietario || <span className="text-slate-300">—</span>}{u.alquilada && <Badge color="blue">alquilada</Badge>}
+                  {(conApp.has((u.propietario_email || '').toLowerCase()) || conApp.has((u.inquilino_email || '').toLowerCase())) && <span title="Tiene la app instalada" className="ml-1">📱</span>}</Td>
                 {mostrarAlquileres && <Td>{u.inquilino || <span className="text-slate-300">—</span>}</Td>}
                 <Td>{fmtPct(Number(u.coef_a))}</Td>
                 <Td>{fmtPct(Number(u.coef_b))}</Td>

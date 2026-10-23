@@ -14,7 +14,7 @@ type Fila = {
   id: string; created_at: string; consorcio_id: string; email: string; nombre: string | null; asunto: string;
   estado: 'pendiente' | 'enviando' | 'enviado' | 'error'; intentos: number; error: string | null;
   enviado_at: string | null; enviar_desde: string | null; resend_id: string | null;
-  liquidacion_id: string | null; comunicado_id: string | null;
+  liquidacion_id: string | null; comunicado_id: string | null; canal: 'mail' | 'push';
 };
 const estadoColor = { pendiente: 'amber', enviando: 'blue', enviado: 'green', error: 'red' } as const;
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -124,7 +124,7 @@ export function EnviosMail() {
                 <Td className="text-xs">{nombreC(f.consorcio_id)}</Td>
                 <Td className="text-xs"><span className="block">{f.nombre || '—'}</span><span className="text-slate-400">{f.email}</span></Td>
                 <Td className="text-xs max-w-[220px]"><span className="block truncate" title={f.asunto}>{f.asunto}</span></Td>
-                <Td><Badge color={f.liquidacion_id ? 'teal' : 'purple'}>{f.liquidacion_id ? 'expensas' : 'comunicado'}</Badge></Td>
+                <Td><Badge color={f.liquidacion_id ? 'teal' : 'purple'}>{f.liquidacion_id ? 'expensas' : 'comunicado'}</Badge><span className="block text-[10px] text-slate-400 mt-0.5">{f.canal === 'push' ? '📱 app' : '✉ mail'}</span></Td>
                 <Td><Badge color={estadoColor[f.estado]}>{f.estado}</Badge>{f.enviar_desde && f.estado === 'pendiente' && <span className="block text-[10px] text-slate-400">desde {fmt(f.enviar_desde)}</span>}</Td>
                 <Td className="text-xs text-center">{f.intentos}</Td>
                 <Td className="text-xs whitespace-nowrap">{fmt(f.enviado_at)}</Td>

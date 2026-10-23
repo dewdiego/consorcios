@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { fmtDate, hoyISO, notificar } from '@/lib/engine';
+import { PORTAL_URL, emailsConApp } from '@/lib/config';
 
 const TIPOS = ['general', 'urgente', 'mantenimiento', 'asamblea', 'administrativo'];
 const tipoColor: Record<string, 'slate' | 'red' | 'amber' | 'purple' | 'blue'> = {
@@ -22,12 +23,13 @@ const fmtFechaHora = (iso: string | null) => {
 
 type Form = {
   consorcio_id: string; tipo: string; titulo: string; contenido: string; etiquetas: string;
-  fecha_publicacion: string; fijado: boolean; destinatarios: string; programado: string;
+  fecha_publicacion: string; fijado: boolean; destinatarios: string; programado: string; canal: string;
 };
 const vacio = (consorcioId = ''): Form => ({
   consorcio_id: consorcioId, tipo: 'general', titulo: '', contenido: '', etiquetas: '',
-  fecha_publicacion: hoyISO(), fijado: false, destinatarios: 'todos', programado: '',
+  fecha_publicacion: hoyISO(), fijado: false, destinatarios: 'todos', programado: '', canal: 'mail',
 });
+const canalLabel: Record<string, string> = { mail: 'Mail', push: 'App', ambos: 'Mail + App' };
 
 type Resumen = { enviados: number; cola: number; errores: number };
 
@@ -94,7 +96,7 @@ export function Noticias() {
     setForm({
       consorcio_id: c.consorcio_id || '', tipo: c.tipo, titulo: c.titulo, contenido: c.contenido, etiquetas: c.etiquetas || '',
       fecha_publicacion: c.fecha_publicacion, fijado: c.fijado, destinatarios: c.destinatarios || 'todos',
-      programado: c.programado_at ? fmtFechaHora(c.programado_at).replace(' ', 'T') : '',
+      programado: c.programado_at ? fmtFechaHora(c.programado_at).replace(' ', 'T') : '', canal: c.canal || 'mail',
     });
     setModal(true);
   };
@@ -105,7 +107,7 @@ export function Noticias() {
     const payload = {
       consorcio_id: form.consorcio_id || null, seccion: editing?.seccion || tab, tipo: form.tipo,
       titulo: form.titulo.trim(), contenido: form.contenido.trim(), etiquetas: form.etiquetas.trim() || null,
-      fecha_publicacion: form.fecha_publicacion, fijado: form.fijado, destinatarios: form.destinatarios,
+      fecha_publicacion: form.fecha_publicacion, fijado: form.fijado, destinatarios: form.destinatarios, canal: form.canal,
     };
     let guardado: Comunicado;
     if (editing) {
@@ -155,9 +157,12 @@ export function Noticias() {
 
     const { data: adm } = await supabase.from('administracion').select('nombre').limit(1).maybeSingle();
     const admin = adm?.nombre || 'La Administración';
+    const canal = c.canal || 'mail';
+    const conApp = canal !== 'mail' ? await emailsConApp(supabase) : new Set<string>();
+    const resumenPush = c.contenido.replace(/\s+/g, ' ').slice(0, 140) + (c.contenido.length > 140 ? '…' : '');
 
     const filas: Record<string, unknown>[] = [];
-    let sinMail = 0;
+    let sinMail = 0, push = 0;
     for (const u of (us as (Unidad & { consorcios: { nombre: string } | null })[]) || []) {
       const dest: { email: string; nombre: string }[] = [];
       const prop = u.propietario_email?.trim().toLowerCase();
@@ -167,6 +172,16 @@ export function Noticias() {
       if (dest.length === 0) { sinMail++; continue; }
       const consorcioNombre = u.consorcios?.nombre || '';
       for (const d of dest) {
+        if (canal !== 'mail' && conApp.has(d.email)) {
+          push++;
+          filas.push({
+            comunicado_id: c.id, consorcio_id: u.consorcio_id, unidad_id: u.id, email: d.email, nombre: d.nombre, canal: 'push',
+            asunto: c.titulo, html: null, push_titulo: `${c.titulo} · ${consorcioNombre}`, push_cuerpo: resumenPush, push_url: PORTAL_URL,
+            enviar_desde: programadoAt,
+          });
+        }
+        // Por mail: siempre si el canal es "mail" o "ambos"; si es sólo "app", se manda por mail a quien NO tiene la app
+        if (canal === 'push' && conApp.has(d.email)) continue;
         filas.push({
           comunicado_id: c.id, consorcio_id: u.consorcio_id, unidad_id: u.id, email: d.email, nombre: d.nombre,
           asunto: `${c.titulo} - ${consorcioNombre}`,
@@ -195,7 +210,7 @@ export function Noticias() {
       : { estado: 'enviado', programado_at: null, ultimo_envio: new Date().toISOString() }).eq('id', c.id);
     await notificar('info', `Comunicado ${programadoAt ? 'programado' : 'enviado'}: ${c.titulo}`, `${filas.length} destinatarios`);
 
-    const extra = sinMail ? ` · ${sinMail} unidades sin mail` : '';
+    const extra = `${push ? ` · ${push} por la app` : ''}${sinMail ? ` · ${sinMail} unidades sin mail` : ''}`;
     if (programadoAt) return `Programado para el ${fmtFechaHora(programadoAt)}: ${filas.length} destinatarios${extra}.`;
 
     const { data, error: fErr } = await supabase.functions.invoke('enviar-expensas', { body: {} });
@@ -278,7 +293,7 @@ export function Noticias() {
                         {r && <span className="text-[11px] text-slate-400">{r.enviados} enviados{r.cola ? ` · ${r.cola} en cola` : ''}{r.errores ? ` · ${r.errores} con error` : ''}</span>}
                       </span>
                     </Td>
-                    <Td><Badge color={estadoColor[c.estado] || 'slate'}>{cap(c.estado || 'borrador')}</Badge></Td>
+                    <Td><Badge color={estadoColor[c.estado] || 'slate'}>{cap(c.estado || 'borrador')}</Badge><span className="block text-[10px] text-slate-400 mt-0.5">{canalLabel[c.canal] || 'Mail'}</span></Td>
                     <Td className="text-slate-500 text-xs whitespace-nowrap">{c.estado === 'programado' ? fmtFechaHora(c.programado_at) : ''}</Td>
                     <Td className="text-slate-500 text-xs whitespace-nowrap">{fmtFechaHora(c.ultimo_envio)}</Td>
                     <Td>
@@ -348,7 +363,9 @@ export function Noticias() {
             <div className="border-t border-slate-100 pt-4 grid grid-cols-2 gap-4">
               <Select label="Enviar a" value={form.destinatarios} onChange={(v) => setForm({ ...form, destinatarios: v })}
                 options={[{ value: 'todos', label: 'Propietarios e inquilinos' }, { value: 'propietarios', label: 'Sólo propietarios' }, { value: 'inquilinos', label: 'Sólo inquilinos' }]} />
-              <Input label="Programar envío (opcional)" type="datetime-local" value={form.programado} onChange={(v) => setForm({ ...form, programado: v })} />
+              <Select label="Canal" value={form.canal} onChange={(v) => setForm({ ...form, canal: v })}
+                options={[{ value: 'mail', label: 'Mail' }, { value: 'ambos', label: 'Mail + notificación en la app' }, { value: 'push', label: 'App (mail sólo a quien no la tiene)' }]} />
+              <div className="col-span-2"><Input label="Programar envío (opcional)" type="datetime-local" value={form.programado} onChange={(v) => setForm({ ...form, programado: v })} /></div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Adjunto (opcional)</label>
                 <input type="file" onChange={(e) => setArchivo(e.target.files?.[0] || null)}

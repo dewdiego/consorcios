@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { AlertTriangle, CheckCircle2, FileSearch, Upload } from 'lucide-react';
 import { supabase, type Rubro } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
-import { Badge, Button, Modal, Spinner, Table, Td, Tabs } from '@/components/ui';
+import { Badge, Button, Input, Modal, Spinner, Table, Td, Tabs } from '@/components/ui';
 import { extraerTextoPdf } from '@/lib/pdfText';
 import { fmtMoney, fmtPct, notificar, periodoLabel, round2 } from '@/lib/engine';
 
@@ -18,7 +19,9 @@ type UnidadImp = {
   coef_a: number; coef_b: number; coef_c: number; coef_d: number;
   monto_a: number; monto_b: number; monto_c: number; monto_d: number;
   saldo_anterior: number; intereses: number; redondeo?: number; total: number;
+  email?: string; telefono?: string;   // no vienen en el PDF: se completan a mano
 };
+type Cfg = { nombre: string; direccion: string; cuit: string; vencimiento_1: string; vencimiento_2: string; recargo: string; interes: string; honorarios: string };
 type GastoImp = {
   rubro_pdf: string; rubro_sistema: string; proveedor?: string | null; cuit_proveedor?: string | null;
   descripcion: string; comprobante?: string | null; categoria: 'A' | 'B' | 'C' | 'D'; monto: number;
@@ -57,8 +60,12 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
   const [error, setError] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [resumen, setResumen] = useState<string[]>([]);
+  const [cfg, setCfg] = useState<Cfg>({ nombre: '', direccion: '', cuit: '', vencimiento_1: '', vencimiento_2: '', recargo: '0', interes: '0', honorarios: '' });
+  const [confirmar, setConfirmar] = useState(false);
 
-  const reset = () => { setPaso('archivo'); setRes(null); setError(''); setArchivo(null); setResumen([]); setTab('unidades'); };
+  const reset = () => { setPaso('archivo'); setRes(null); setError(''); setArchivo(null); setResumen([]); setTab('unidades'); setConfirmar(false); };
+  const setU = (i: number, campo: keyof UnidadImp, valor: string) =>
+    setRes((r) => r ? { ...r, unidades: r.unidades.map((u, j) => j === i ? { ...u, [campo]: ['depto', 'propietario', 'email', 'telefono'].includes(campo) ? valor : Number(valor.replace(',', '.')) || 0 } : u) } : r);
   const cerrar = () => { reset(); onClose(); };
 
   // ---------- 1. Analizar ----------
@@ -79,6 +86,12 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       if (!r?.unidades?.length) throw new Error('No se encontró la planilla de unidades en el PDF.');
       r.unidades.sort((a, b) => a.uf - b.uf);
       setRes(r);
+      const honorarios = r.gastos.find((g) => /honorario/i.test(g.descripcion) || /administraci/i.test(g.rubro_sistema))?.monto;
+      setCfg({
+        nombre: r.consorcio?.nombre || '', direccion: r.consorcio?.direccion || '', cuit: r.consorcio?.cuit || '',
+        vencimiento_1: r.vencimiento_1 || '', vencimiento_2: r.vencimiento_2 || '',
+        recargo: '0', interes: String(r.interes_mora_mensual_pct || 0), honorarios: honorarios ? String(honorarios) : '',
+      });
       setPaso('preview');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -100,6 +113,21 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
     if (Math.abs(totG - res.totales.gastos) > 5) avisos.push(`La suma de los gastos leídos (${fmtMoney(totG)}) no coincide con el total de gastos del PDF (${fmtMoney(res.totales.gastos)}).`);
     for (const o of res.observaciones || []) avisos.push(o);
   }
+  // Datos obligatorios que faltan: bloquean la importación hasta completarlos en pantalla
+  const faltantes: string[] = [];
+  if (res) {
+    if (!consorcioId && !cfg.nombre.trim()) faltantes.push('Nombre del consorcio');
+    if (!cfg.vencimiento_1) faltantes.push('Fecha del 1º vencimiento');
+    const sinDepto = res.unidades.filter((u) => !u.depto?.trim()).map((u) => u.uf);
+    if (sinDepto.length) faltantes.push(`Depto. en UF ${sinDepto.join(', ')}`);
+    const sinProp = res.unidades.filter((u) => !u.propietario?.trim()).map((u) => u.uf);
+    if (sinProp.length) faltantes.push(`Propietario en UF ${sinProp.join(', ')}`);
+    const sinCoef = res.unidades.filter((u) => !(u.coef_a + u.coef_b + u.coef_c + u.coef_d > 0)).map((u) => u.uf);
+    if (sinCoef.length) faltantes.push(`Coeficientes en UF ${sinCoef.join(', ')}`);
+    const ufRep = res.unidades.map((u) => u.uf).filter((v, i, a) => a.indexOf(v) !== i);
+    if (ufRep.length) faltantes.push(`Números de UF repetidos: ${[...new Set(ufRep)].join(', ')}`);
+  }
+  const sinMail = res ? res.unidades.filter((u) => !u.email?.trim()).length : 0;
 
   // ---------- 2. Importar ----------
   const importar = async () => {
@@ -108,23 +136,24 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
     const log: string[] = [];
     try {
       const diaDe = (f: string | null, def: number) => (f ? Math.min(28, Number(f.slice(8, 10)) || def) : def);
+      const v1 = cfg.vencimiento_1 || null, v2 = cfg.vencimiento_2 || null;
+      const d1 = diaDe(v1, 10), d2 = v2 ? diaDe(v2, 20) : Math.min(28, d1 + 10);
+      const config = {
+        dia_vencimiento_1: d1, dia_vencimiento_2: d2 > d1 ? d2 : Math.min(28, d1 + 10),
+        recargo_2do_venc_pct: Number(cfg.recargo) || 0, interes_mora_mensual_pct: Number(cfg.interes) || 0,
+        honorarios_mensuales: Number(cfg.honorarios) || 0,
+      };
       // Consorcio
       let cid = consorcioId;
       if (!cid) {
         const { data: c, error: cErr } = await supabase.from('consorcios').insert({
-          nombre: res.consorcio.nombre.trim(), direccion: res.consorcio.direccion || null, cuit: res.consorcio.cuit || null,
-          dia_vencimiento_1: diaDe(res.vencimiento_1, 10), dia_vencimiento_2: diaDe(res.vencimiento_2, Math.min(28, diaDe(res.vencimiento_1, 10) + 10)),
-          recargo_2do_venc_pct: 0, interes_mora_mensual_pct: res.interes_mora_mensual_pct || 0,
+          nombre: cfg.nombre.trim(), direccion: cfg.direccion || null, cuit: cfg.cuit || null, ...config,
           notas: `Importado desde liquidación ${res.periodo}${res.administracion?.nombre ? ` (${res.administracion.nombre})` : ''}`,
         }).select().single();
         if (cErr) throw new Error(cErr.message);
         cid = c.id; log.push(`Consorcio creado: ${c.nombre}`);
       } else {
-        const upd: Record<string, unknown> = {};
-        if (res.vencimiento_1) upd.dia_vencimiento_1 = diaDe(res.vencimiento_1, 10);
-        if (res.vencimiento_2) upd.dia_vencimiento_2 = diaDe(res.vencimiento_2, 20);
-        if (res.interes_mora_mensual_pct) upd.interes_mora_mensual_pct = res.interes_mora_mensual_pct;
-        if (Object.keys(upd).length) await supabase.from('consorcios').update(upd).eq('id', cid);
+        await supabase.from('consorcios').update(config).eq('id', cid);
       }
 
       // La liquidación del período no debe existir
@@ -133,7 +162,8 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
 
       // Unidades (alta o actualización por número de UF)
       const { error: uErr } = await supabase.from('unidades').upsert(res.unidades.map((u) => ({
-        consorcio_id: cid, uf: u.uf, depto: u.depto || `UF ${u.uf}`, propietario: u.propietario || null,
+        consorcio_id: cid, uf: u.uf, depto: u.depto.trim(), propietario: u.propietario.trim(),
+        propietario_email: u.email?.trim().toLowerCase() || null, propietario_telefono: u.telefono?.trim() || null,
         coef_a: u.coef_a || 0, coef_b: u.coef_b || 0, coef_c: u.coef_c || 0, coef_d: u.coef_d || 0, activo: true,
       })), { onConflict: 'consorcio_id,uf' });
       if (uErr) throw new Error(`Unidades: ${uErr.message}`);
@@ -169,8 +199,8 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       const totalDistribuido = round2(res.unidades.reduce((a, u) => a + Number(u.total), 0));
       const { data: liq, error: lErr } = await supabase.from('liquidaciones').insert({
         consorcio_id: cid, periodo: res.periodo, estado: 'cerrada',
-        fecha_vencimiento_1: res.vencimiento_1, fecha_vencimiento_2: res.vencimiento_2 || res.vencimiento_1,
-        recargo_2do_venc_pct: 0, interes_mora_pct: res.interes_mora_mensual_pct || 0,
+        fecha_vencimiento_1: v1, fecha_vencimiento_2: v2 || v1,
+        recargo_2do_venc_pct: config.recargo_2do_venc_pct, interes_mora_pct: config.interes_mora_mensual_pct,
         total_gastos: totalGastos, total_distribuido: totalDistribuido,
         cerrada_por: `${usuario} (importación PDF)`, cerrada_at: new Date().toISOString(),
         notas: `Importada desde PDF${res.administracion?.nombre ? ` de ${res.administracion.nombre}` : ''}. Columnas: ${res.columnas.map((c) => `${c.categoria}=${c.titulo_pdf}`).join(', ')}.`,
@@ -213,7 +243,7 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
         }
       }
 
-      await notificar('info', `Liquidación ${res.periodo} importada`, `${res.consorcio.nombre}: ${log.join(' · ')}`);
+      await notificar('info', `Liquidación ${res.periodo} importada`, `${cfg.nombre || res.consorcio.nombre}: ${log.join(' · ')}`);
       await reloadConsorcios();
       setResumen(log);
       setPaso('listo');
@@ -257,15 +287,30 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
 
       {(paso === 'preview' || paso === 'importando') && res && (
         <div>
-          <div className="bg-slate-50 rounded-lg p-4 text-sm mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="col-span-2"><p className="text-xs text-slate-400">Consorcio</p><p className="font-semibold text-slate-800">{res.consorcio.nombre}</p><p className="text-xs text-slate-500">{res.consorcio.direccion}{res.consorcio.cuit ? ` · CUIT ${res.consorcio.cuit}` : ''}</p></div>
-            <div><p className="text-xs text-slate-400">Período</p><p className="font-semibold">{periodoLabel(res.periodo)}</p></div>
-            <div><p className="text-xs text-slate-400">Vencimientos</p><p className="font-semibold">{res.vencimiento_1 || '—'}{res.vencimiento_2 ? ` / ${res.vencimiento_2}` : ''}</p></div>
-            <div className="col-span-2"><p className="text-xs text-slate-400">Columnas de prorrateo</p>
-              <div className="flex flex-wrap gap-1 mt-0.5">{res.columnas.map((c, i) => <Badge key={i} color={catColor(c.categoria)}>{c.categoria} = {c.titulo_pdf}</Badge>)}</div></div>
-            <div><p className="text-xs text-slate-400">Total gastos</p><p className="font-semibold">{fmtMoney(res.totales.gastos)}</p></div>
-            <div><p className="text-xs text-slate-400">Total a cobrar</p><p className="font-semibold">{fmtMoney(res.totales.distribuido)}</p></div>
+          <div className="bg-slate-50 rounded-lg p-4 mb-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Revisá y completá los datos del edificio</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="col-span-2"><Input label="Nombre del consorcio" value={cfg.nombre} onChange={(v) => setCfg({ ...cfg, nombre: v })} required /></div>
+              <div className="col-span-2"><Input label="Dirección" value={cfg.direccion} onChange={(v) => setCfg({ ...cfg, direccion: v })} /></div>
+              <Input label="CUIT" value={cfg.cuit} onChange={(v) => setCfg({ ...cfg, cuit: v })} />
+              <Input label="1º vencimiento" type="date" value={cfg.vencimiento_1} onChange={(v) => setCfg({ ...cfg, vencimiento_1: v })} required />
+              <Input label="2º vencimiento" type="date" value={cfg.vencimiento_2} onChange={(v) => setCfg({ ...cfg, vencimiento_2: v })} />
+              <Input label="Recargo 2º venc. (%)" type="number" step="0.01" value={cfg.recargo} onChange={(v) => setCfg({ ...cfg, recargo: v })} />
+              <Input label="Interés mora mensual (%)" type="number" step="0.01" value={cfg.interes} onChange={(v) => setCfg({ ...cfg, interes: v })} />
+              <Input label="Honorarios adm. ($/mes)" type="number" step="0.01" value={cfg.honorarios} onChange={(v) => setCfg({ ...cfg, honorarios: v })} />
+              <div className="col-span-2 text-sm pt-1">
+                <p><span className="text-slate-400 text-xs">Período</span> <b>{periodoLabel(res.periodo)}</b> · <span className="text-slate-400 text-xs">Gastos</span> <b>{fmtMoney(res.totales.gastos)}</b> · <span className="text-slate-400 text-xs">A cobrar</span> <b>{fmtMoney(res.totales.distribuido)}</b></p>
+                <div className="flex flex-wrap gap-1 mt-1">{res.columnas.map((c, i) => <Badge key={i} color={catColor(c.categoria)}>{c.categoria} = {c.titulo_pdf}</Badge>)}</div>
+              </div>
+            </div>
           </div>
+
+          {faltantes.length > 0 && (
+            <div className="bg-red-50 text-red-700 text-xs rounded-lg px-4 py-3 mb-4">
+              <p className="font-semibold mb-1">Falta completar antes de importar:</p>
+              <ul className="list-disc pl-4 space-y-0.5">{faltantes.map((f, i) => <li key={i}>{f}</li>)}</ul>
+            </div>
+          )}
 
           {avisos.length > 0 && (
             <div className="bg-amber-50 text-amber-800 text-xs rounded-lg px-4 py-3 mb-4 space-y-1">
@@ -282,22 +327,41 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
 
           <div className="max-h-[45vh] overflow-y-auto border border-slate-100 rounded-lg">
             {tab === 'unidades' ? (
-              <Table headers={['UF', 'Depto', 'Propietario', '% A', '% B', '% C', '% D', 'Saldo ant.', 'Int.', 'Total']}>
-                {res.unidades.map((u) => (
-                  <tr key={u.uf}>
-                    <Td className="font-mono text-xs">{String(u.uf).padStart(3, '0')}</Td>
-                    <Td>{u.depto}</Td>
-                    <Td className="max-w-[160px] truncate">{u.propietario}</Td>
-                    <Td className="text-xs">{u.coef_a ? fmtPct(u.coef_a) : ''}</Td>
-                    <Td className="text-xs">{u.coef_b ? fmtPct(u.coef_b) : ''}</Td>
-                    <Td className="text-xs">{u.coef_c ? fmtPct(u.coef_c) : ''}</Td>
-                    <Td className="text-xs">{u.coef_d ? fmtPct(u.coef_d) : ''}</Td>
-                    <Td className={`text-xs ${u.saldo_anterior > 0 ? 'text-red-500' : u.saldo_anterior < 0 ? 'text-emerald-600' : ''}`}>{u.saldo_anterior ? fmtMoney(u.saldo_anterior) : ''}</Td>
-                    <Td className="text-xs">{u.intereses ? fmtMoney(u.intereses) : ''}</Td>
-                    <Td className="font-semibold">{fmtMoney(u.total)}</Td>
+              <>
+                <p className="text-[11px] text-slate-400 px-3 pt-2">Podés corregir cualquier celda. El mail y el teléfono no vienen en el PDF: cargalos ahora o después desde Unidades ({sinMail} sin mail).</p>
+                <Table headers={['UF', 'Depto', 'Propietario', 'Mail', 'Teléfono', '% A', '% B', '% C', '% D', 'Saldo ant.', 'Int.', 'Total']}>
+                  {res.unidades.map((u, i) => {
+                    const cell = (campo: keyof UnidadImp, w: string, type = 'text', falta = false) => (
+                      <input type={type} step="0.0001" value={String(u[campo] ?? '')} onChange={(e) => setU(i, campo, e.target.value)}
+                        className={`${w} px-1.5 py-1 text-xs border rounded ${falta ? 'border-red-300 bg-red-50' : 'border-slate-200'} focus:outline-none focus:border-teal-500`} />
+                    );
+                    return (
+                      <tr key={i}>
+                        <Td className="font-mono text-xs">{String(u.uf).padStart(3, '0')}</Td>
+                        <Td>{cell('depto', 'w-16', 'text', !u.depto?.trim())}</Td>
+                        <Td>{cell('propietario', 'w-40', 'text', !u.propietario?.trim())}</Td>
+                        <Td>{cell('email', 'w-44', 'email')}</Td>
+                        <Td>{cell('telefono', 'w-28')}</Td>
+                        <Td>{cell('coef_a', 'w-16', 'number')}</Td>
+                        <Td>{cell('coef_b', 'w-16', 'number')}</Td>
+                        <Td>{cell('coef_c', 'w-16', 'number')}</Td>
+                        <Td>{cell('coef_d', 'w-16', 'number')}</Td>
+                        <Td className={`text-xs whitespace-nowrap ${u.saldo_anterior > 0 ? 'text-red-500' : u.saldo_anterior < 0 ? 'text-emerald-600' : ''}`}>{u.saldo_anterior ? fmtMoney(u.saldo_anterior) : ''}</Td>
+                        <Td className="text-xs whitespace-nowrap">{u.intereses ? fmtMoney(u.intereses) : ''}</Td>
+                        <Td className="font-semibold whitespace-nowrap">{fmtMoney(u.total)}</Td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-slate-50 font-semibold text-xs">
+                    <Td colSpan={5} className="text-right">Suma de coeficientes</Td>
+                    {(['coef_a', 'coef_b', 'coef_c', 'coef_d'] as const).map((k) => {
+                      const sum = round2(res.unidades.reduce((a, u) => a + Number(u[k] || 0), 0));
+                      return <Td key={k} className={sum === 0 ? 'text-slate-300' : Math.abs(sum - 100) <= 0.5 ? 'text-emerald-600' : 'text-red-500'}>{fmtPct(sum)}</Td>;
+                    })}
+                    <Td colSpan={3} />
                   </tr>
-                ))}
-              </Table>
+                </Table>
+              </>
             ) : tab === 'gastos' ? (
               <Table headers={['Rubro', 'Proveedor', 'Descripción', 'Cat.', 'Monto']}>
                 {res.gastos.map((g, i) => (
@@ -332,11 +396,22 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
             <Button variant="ghost" onClick={reset} disabled={paso === 'importando'}>Elegir otro PDF</Button>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={cerrar} disabled={paso === 'importando'}>Cancelar</Button>
-              <Button onClick={importar} disabled={paso === 'importando'}>{paso === 'importando' ? 'Importando…' : `Importar ${consorcioId ? 'en este consorcio' : 'y crear consorcio'}`}</Button>
+              <Button onClick={() => setConfirmar(true)} disabled={paso === 'importando' || faltantes.length > 0} className={faltantes.length ? 'opacity-50' : ''}>
+                {paso === 'importando' ? 'Importando…' : faltantes.length ? `Faltan ${faltantes.length} datos` : 'Continuar'}
+              </Button>
             </div>
           </div>
         </div>
       )}
+
+      <ConfirmDialog open={confirmar} onCancel={() => setConfirmar(false)} peligro={false} confirmLabel="Sí, dar de alta"
+        onConfirm={() => { setConfirmar(false); importar(); }}
+        title={consorcioId ? 'Confirmar importación' : 'Confirmar alta del edificio'}
+        message={res ? [
+          consorcioId ? `Se importa la liquidación ${periodoLabel(res.periodo)} en este consorcio.` : `Se crea el consorcio "${cfg.nombre}" con vencimientos los días ${cfg.vencimiento_1 ? Number(cfg.vencimiento_1.slice(8, 10)) : '-'}${cfg.vencimiento_2 ? ` y ${Number(cfg.vencimiento_2.slice(8, 10))}` : ''}.`,
+          `Altas: ${res.unidades.length} unidades con sus propietarios y coeficientes${sinMail ? ` (${sinMail} sin mail)` : ''}, ${res.gastos.length} gastos por ${fmtMoney(res.gastos.reduce((a, g) => a + Number(g.monto), 0))}, ${res.empleados?.length || 0} empleados, y la liquidación ${periodoLabel(res.periodo)} cerrada con ${res.unidades.length} cupones por ${fmtMoney(res.unidades.reduce((a, u) => a + Number(u.total), 0))}.`,
+          '¿Confirmás?',
+        ].join(' ') : ''} />
 
       {paso === 'listo' && (
         <div className="py-4 text-center">

@@ -486,6 +486,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
       </Modal>
 
       <ConfirmDialog open={!!confirm} title={confirm?.title || ''} message={confirm?.message || ''}
+        peligro={/eliminar/i.test(confirm?.title || '')} confirmLabel={/eliminar/i.test(confirm?.title || '') ? 'Eliminar' : 'Confirmar'}
         onCancel={() => setConfirm(null)}
         onConfirm={() => { const a = confirm?.action; setConfirm(null); if (a) run(a); }} />
     </div>

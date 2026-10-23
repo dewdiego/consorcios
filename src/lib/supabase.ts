@@ -146,6 +146,7 @@ export type Comunicado = {
   titulo: string; contenido: string; fijado: boolean; activo: boolean; fecha_publicacion: string; created_at: string;
   numero: number | null; estado: 'borrador' | 'programado' | 'enviado'; etiquetas: string | null;
   destinatarios: 'todos' | 'propietarios' | 'inquilinos'; programado_at: string | null; ultimo_envio: string | null; adjunto_path: string | null;
+  canal: 'mail' | 'push' | 'ambos';
   consorcios?: Consorcio;
 };
 

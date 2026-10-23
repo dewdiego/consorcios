@@ -6,6 +6,7 @@
 // Opcionales: LIMITE_DIARIO (default 100), POR_CORRIDA (default 40)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { encodeBase64 } from 'jsr:@std/encoding@1/base64';
+import webpush from 'npm:web-push@3.6.7';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -15,6 +16,11 @@ const cors = {
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Versión en texto plano del HTML (Gmail penaliza los mails que vienen sólo en HTML)
+const aTexto = (html: string) => html
+  .replace(/<\/(p|div|tr|h\d|li)>/gi, '\n').replace(/<br\s*\/?>/gi, '\n').replace(/<\/td>/gi, '  ')
+  .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
@@ -24,6 +30,9 @@ Deno.serve(async (req) => {
   const REPLY_TO = Deno.env.get('RESEND_REPLY_TO');
   if (!RESEND_API_KEY || !FROM) return json({ error: 'Faltan los secretos RESEND_API_KEY y/o RESEND_FROM en Supabase.' }, 500);
   const LIMITE = Number(Deno.env.get('LIMITE_DIARIO') || 100);
+  const VAPID_PUB = Deno.env.get('VAPID_PUBLIC_KEY'), VAPID_PRIV = Deno.env.get('VAPID_PRIVATE_KEY');
+  const pushHabilitado = !!(VAPID_PUB && VAPID_PRIV);
+  if (pushHabilitado) webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:' + (REPLY_TO || 'admin@example.com'), VAPID_PUB!, VAPID_PRIV!);
   const POR_CORRIDA = Number(Deno.env.get('POR_CORRIDA') || 40);
 
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -39,8 +48,9 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: FROM, to: [body.test_email], subject: 'Prueba de envío · Sistema de consorcios',
-        html: `<p>Este es un mail de prueba enviado el ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}.</p><p>Si lo recibiste, el envío está funcionando.</p>`,
+        from: FROM, to: [body.test_email], subject: 'Comunicación de la administración',
+        html: `<p>Hola,</p><p>Le escribimos desde la administración del consorcio para confirmar que esta casilla recibe correctamente nuestras comunicaciones (expensas y avisos).</p><p>Enviado el ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}.</p><p>Saludos cordiales.</p>`,
+        text: `Hola,\n\nLe escribimos desde la administración del consorcio para confirmar que esta casilla recibe correctamente nuestras comunicaciones (expensas y avisos).\n\nSaludos cordiales.`,
         ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
       }),
     });
@@ -58,22 +68,25 @@ Deno.serve(async (req) => {
   const inicioDia = new Date(ar.getTime() + 3 * 3600e3).toISOString();
 
   const { count: enviadosHoy } = await sb.from('cola_envios')
-    .select('id', { count: 'exact', head: true }).eq('estado', 'enviado').gte('enviado_at', inicioDia);
+    .select('id', { count: 'exact', head: true }).eq('estado', 'enviado').eq('canal', 'mail').gte('enviado_at', inicioDia);
   const disponibles = Math.max(0, LIMITE - (enviadosHoy || 0));
 
   const contarPendientes = async () =>
     (await sb.from('cola_envios').select('id', { count: 'exact', head: true }).eq('estado', 'pendiente')).count || 0;
 
-  if (disponibles === 0) {
-    return json({ enviados: 0, errores: 0, quedan: await contarPendientes(), enviadosHoy, limite: LIMITE, mensaje: 'Límite diario alcanzado: el resto sale mañana.', config: cfg, log });
-  }
-
-  // Sólo los que ya pueden salir (sin programar, o con fecha programada cumplida)
-  const { data: pendientes } = await sb.from('cola_envios').select('*')
-    .eq('estado', 'pendiente')
+  // Sólo los que ya pueden salir (sin programar, o con fecha programada cumplida).
+  // Los push no cuentan para el límite diario de Resend.
+  const { data: pendMail } = disponibles > 0 ? await sb.from('cola_envios').select('*')
+    .eq('estado', 'pendiente').eq('canal', 'mail')
     .or(`enviar_desde.is.null,enviar_desde.lte.${ahora}`)
-    .order('created_at').limit(Math.min(disponibles, POR_CORRIDA));
-  log.push(`Pendientes listos para salir: ${pendientes?.length || 0} (cupo de hoy: ${disponibles})`);
+    .order('created_at').limit(Math.min(disponibles, POR_CORRIDA)) : { data: [] };
+  const { data: pendPush } = await sb.from('cola_envios').select('*')
+    .eq('estado', 'pendiente').eq('canal', 'push')
+    .or(`enviar_desde.is.null,enviar_desde.lte.${ahora}`)
+    .order('created_at').limit(200);
+  const pendientes = [...(pendMail || []), ...(pendPush || [])];
+  log.push(`Listos para salir: ${pendMail?.length || 0} mails (cupo de hoy: ${disponibles}) · ${pendPush?.length || 0} push${pushHabilitado ? '' : ' (push NO configurado: faltan claves VAPID)'}`);
+  if (disponibles === 0) log.push('Límite diario de mails alcanzado: el resto sale mañana.');
 
   // Cada adjunto se descarga una sola vez por corrida
   const adjuntos = new Map<string, string | null>();
@@ -96,6 +109,34 @@ Deno.serve(async (req) => {
     if (!tomado || tomado.length === 0) continue;
 
     try {
+      // ---- Canal PUSH: notificación a todos los dispositivos del mail ----
+      if (item.canal === 'push') {
+        if (!pushHabilitado) throw new Error('Push no configurado (faltan VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY).');
+        const { data: subs } = await sb.from('push_suscripciones').select('*').ilike('email', item.email).eq('activa', true);
+        if (!subs || subs.length === 0) throw new Error('El destinatario no tiene la app instalada (sin dispositivos).');
+        const payload = JSON.stringify({ title: item.push_titulo || item.asunto, body: item.push_cuerpo || '', url: item.push_url || '/portal/' });
+        let okDisp = 0; const fallas: string[] = [];
+        for (const sub of subs) {
+          try {
+            await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, { TTL: 86400 });
+            okDisp++;
+          } catch (e) {
+            const st = (e as { statusCode?: number }).statusCode;
+            const msg = `${st || ''} ${(e as Error).message || ''}`.trim();
+            fallas.push(msg);
+            if (st === 404 || st === 410) await sb.from('push_suscripciones').update({ activa: false, ultimo_error: msg }).eq('id', sub.id); // dispositivo dado de baja
+            else await sb.from('push_suscripciones').update({ ultimo_error: msg }).eq('id', sub.id);
+          }
+        }
+        if (okDisp === 0) throw new Error(`Ningún dispositivo recibió la notificación: ${fallas.join(' | ')}`);
+        await sb.from('cola_envios').update({ estado: 'enviado', enviado_at: new Date().toISOString(), resend_id: `push:${okDisp}/${subs.length}`, error: fallas.length ? fallas.join(' | ') : null }).eq('id', item.id);
+        if (item.comunicado_id) comunicadosEnviados.add(item.comunicado_id);
+        log.push(`PUSH OK → ${item.email} (${okDisp}/${subs.length} dispositivos)`);
+        enviados++;
+        continue;
+      }
+
+      // ---- Canal MAIL ----
       // Adjunto: el del registro; para expensas viejas, el PDF de la liquidación
       let path: string | null = item.adjunto_path;
       if (!path && item.liquidacion_id) {
@@ -115,7 +156,7 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: FROM, to: [item.email], subject: item.asunto, html: item.html,
+          from: FROM, to: [item.email], subject: item.asunto, html: item.html, text: aTexto(item.html),
           ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
           ...(attachments.length ? { attachments } : {}),
         }),
@@ -138,7 +179,7 @@ Deno.serve(async (req) => {
       log.push(`ERROR → ${item.email}: ${msg}`);
       errores++;
     }
-    await sleep(600); // Resend permite ~2 por segundo
+    if (item.canal !== 'push') await sleep(600); // Resend permite ~2 por segundo
   }
 
   // Comunicados que salieron: pasan a "Enviado" y se actualiza el último envío

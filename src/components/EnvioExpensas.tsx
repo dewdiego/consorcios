@@ -3,6 +3,7 @@ import { FileUp, Mail, RefreshCw, RotateCcw, Send } from 'lucide-react';
 import { supabase, type Cupon, type Liquidacion } from '@/lib/supabase';
 import { Badge, Button, Card, Spinner, Table, Td } from '@/components/ui';
 import { fmtDate, fmtMoney, notificar, periodoLabel } from '@/lib/engine';
+import { PORTAL_URL, emailsConApp } from '@/lib/config';
 
 /*
   Envío de expensas por mail:
@@ -54,6 +55,7 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'error' | 'warn'; texto: string } | null>(null);
+  const [conPush, setConPush] = useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -117,6 +119,14 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
     if (!liq.pdf_path) throw new Error('Adjuntá el PDF de la liquidación antes de enviar.');
     if (destinatarios.length === 0) throw new Error('Ninguna unidad tiene mail cargado. Cargalos en Unidades.');
     const periodo = periodoLabel(liq.periodo);
+    const conApp = conPush ? await emailsConApp(supabase) : new Set<string>();
+    const filasPush = destinatarios.filter((d) => conApp.has(d.email)).map(({ cupon, email, nombre }) => ({
+      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'push', html: null,
+      asunto: `Expensas ${periodo} - ${consorcioNombre}`,
+      push_titulo: `Expensas ${periodo} · ${consorcioNombre}`,
+      push_cuerpo: `UF ${cupon.unidades?.uf}: ${fmtMoney(Number(cupon.total))} hasta el ${fmtDate(liq.fecha_vencimiento_1)}. Tocá para ver la liquidación.`,
+      push_url: PORTAL_URL,
+    }));
     const filas = destinatarios.map(({ cupon, email, nombre }) => ({
       liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, adjunto_path: liq.pdf_path,
       asunto: `Expensas ${periodo} - ${consorcioNombre} - UF ${cupon.unidades?.uf}`,
@@ -129,14 +139,14 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
       }),
     }));
     // ignoreDuplicates: a quien ya está en la cola (o ya lo recibió) no se le vuelve a mandar
-    const { error } = await supabase.from('cola_envios').upsert(filas, { onConflict: 'liquidacion_id,unidad_id,email', ignoreDuplicates: true });
+    const { error } = await supabase.from('cola_envios').upsert([...filas, ...filasPush], { onConflict: 'liquidacion_id,unidad_id,email,canal', ignoreDuplicates: true });
     if (error) throw new Error(error.message);
     if (liq.estado === 'cerrada') {
       await supabase.from('liquidaciones').update({ estado: 'enviada', enviada_at: new Date().toISOString() }).eq('id', liq.id);
     }
     await notificar('info', `Envío de expensas ${liq.periodo} encolado`, `${consorcioNombre}: ${filas.length} destinatarios.`);
     const res = await procesarCola();
-    return `Encolados ${filas.length} destinatarios. ${res}`;
+    return `Encolados ${filas.length} mails${filasPush.length ? ` y ${filasPush.length} avisos por la app` : ''}. ${res}`;
   });
 
   const procesarCola = async (): Promise<string> => {
@@ -184,6 +194,10 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
           <p className="text-xs text-slate-400 mb-4">
             {destinatarios.length} destinatarios con mail{sinMail.length > 0 && <span className="text-amber-600"> · {sinMail.length} UF sin mail (no se les envía)</span>}
           </p>
+          <label className="flex items-center gap-2 text-xs text-slate-600 mb-3">
+            <input type="checkbox" className="rounded" checked={conPush} onChange={(e) => setConPush(e.target.checked)} />
+            Avisar también por la app a quienes la tienen instalada
+          </label>
           <div className="flex gap-2 flex-wrap">
             <Button onClick={encolar} disabled={busy || liq.estado === 'abierta' || !liq.pdf_path}><Send size={15} /> {cola.length ? 'Enviar a los que faltan' : 'Enviar expensas'}</Button>
             {cuenta('pendiente') > 0 && <Button variant="secondary" onClick={() => run(procesarCola)} disabled={busy}><RefreshCw size={15} /> Procesar ahora</Button>}
