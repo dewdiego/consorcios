@@ -204,6 +204,13 @@ export function montoEsperado(cupon: Cupon, fv1: string | null, fv2: string | nu
   return { monto: cupon.total_2do_venc, vencimiento: 'vencido' };
 }
 
+/** Cuenta predeterminada del consorcio (si no hay, la primera activa). Ahí caen los cobros/pagos sin cuenta indicada. */
+export async function cuentaPredeterminada(consorcioId: string): Promise<string | null> {
+  const { data } = await supabase.from('cuentas').select('id, predeterminada').eq('consorcio_id', consorcioId).eq('activa', true)
+    .order('predeterminada', { ascending: false }).order('created_at').limit(1);
+  return data?.[0]?.id ?? null;
+}
+
 /** Registra un pago, actualiza el estado del cupón y genera el movimiento de caja (ingreso). */
 export async function registrarPago(params: {
   consorcio_id: string; unidad_id: string; cupon_id: string | null;
@@ -222,7 +229,7 @@ export async function registrarPago(params: {
   // Movimiento de caja automático
   const { data: unidad } = await supabase.from('unidades').select('uf, depto').eq('id', params.unidad_id).single();
   await supabase.from('movimientos').insert({
-    consorcio_id: params.consorcio_id, cuenta_id: cuenta_id || null, fecha: params.fecha,
+    consorcio_id: params.consorcio_id, cuenta_id: cuenta_id || await cuentaPredeterminada(params.consorcio_id), fecha: params.fecha,
     tipo: 'ingreso', concepto: `Cobranza expensas UF ${unidad?.uf ?? ''} ${unidad?.depto ?? ''}`.trim(),
     monto: params.monto, origen: 'pago', origen_id: inserted.id,
   });
@@ -258,7 +265,7 @@ export async function pagarOrdenPago(opId: string, cuentaId: string | null) {
   const hoy = hoyISO();
   await supabase.from('gastos').update({ pagado: true, fecha_pago: hoy }).eq('orden_pago_id', opId);
   await supabase.from('movimientos').insert({
-    consorcio_id: op.consorcio_id, cuenta_id: cuentaId, fecha: hoy, tipo: 'egreso',
+    consorcio_id: op.consorcio_id, cuenta_id: cuentaId || await cuentaPredeterminada(op.consorcio_id), fecha: hoy, tipo: 'egreso',
     concepto: `OP #${op.numero} — ${(op.proveedores as { nombre?: string } | null)?.nombre || 'Proveedor'}`,
     monto: op.monto, origen: 'orden_pago', origen_id: op.id,
   });

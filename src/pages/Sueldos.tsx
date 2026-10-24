@@ -4,7 +4,7 @@ import { supabase, type Empleado, type Rubro, type SueldoLiquidacion } from '@/l
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { calcularSueldo, fmtMoney, hoyISO, periodoActual, round2 } from '@/lib/engine';
+import { calcularSueldo, fmtMoney, hoyISO, periodoActual, round2, cuentaPredeterminada } from '@/lib/engine';
 
 const cargos = ['encargado', 'ayudante', 'suplente', 'personal_limpieza', 'vigilancia', 'otro'];
 
@@ -75,7 +75,7 @@ export function Sueldos() {
     if (!error && gasto) {
       await supabase.from('sueldo_liquidaciones').update({ estado: 'pagada', gasto_id: gasto.id }).eq('id', l.id);
       await supabase.from('movimientos').insert({
-        consorcio_id: consorcio.id, fecha: hoyISO(), tipo: 'egreso',
+        consorcio_id: consorcio.id, cuenta_id: await cuentaPredeterminada(consorcio.id), fecha: hoyISO(), tipo: 'egreso',
         concepto: `Sueldo ${l.empleados?.nombre} ${l.periodo}`, monto: Number(l.neto), origen: 'sueldo', origen_id: l.id,
       });
       setMsg('Sueldo marcado como pagado: se generó el gasto pendiente (costo total con cargas) y el egreso de caja (neto).');

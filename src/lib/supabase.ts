@@ -193,18 +193,26 @@ export type SueldoLiquidacion = {
 
 export type Cuenta = {
   id: string; consorcio_id: string; nombre: string; tipo: 'caja' | 'banco'; banco: string | null;
-  cbu: string | null; saldo_inicial: number; activa: boolean;
+  cbu: string | null; saldo_inicial: number; fecha_saldo_inicial: string; predeterminada: boolean; activa: boolean;
+};
+
+export type Conciliacion = {
+  id: string; consorcio_id: string; cuenta_id: string; periodo: string;
+  saldo_extracto: number | null; cerrada: boolean; notas: string | null;
 };
 
 export type Movimiento = {
   id: string; consorcio_id: string; cuenta_id: string | null; fecha: string; tipo: 'ingreso' | 'egreso';
   concepto: string; monto: number; origen: string; origen_id: string | null; conciliado: boolean; created_at: string;
+  comprobante: string | null; fecha_conciliado: string | null;
   cuentas?: Cuenta;
 };
 
 export type Retencion = {
   id: string; consorcio_id: string; proveedor_id: string | null; tipo: string; monto: number;
-  fecha: string; certificado: string | null; proveedores?: Proveedor;
+  fecha: string; certificado: string | null; base: number | null; alicuota: number | null;
+  estado: 'pendiente' | 'depositada'; orden_pago_id: string | null; movimiento_id: string | null; depositada_at: string | null;
+  proveedores?: Proveedor;
 };
 
 export type Evento = {
