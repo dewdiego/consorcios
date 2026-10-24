@@ -379,6 +379,7 @@ export function Noticias() {
             </label>
           )}
         </div>
+        {modal && msg?.tipo === 'error' && <div className="text-sm rounded-lg px-4 py-2.5 mt-4 bg-red-50 text-red-600">{msg.texto}</div>}
         <div className="flex justify-end gap-2 mt-5">
           <Button variant="secondary" onClick={() => setModal(false)}>Cancelar</Button>
           {(editing?.seccion || tab) === 'comunicados' ? (
