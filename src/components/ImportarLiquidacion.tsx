@@ -86,7 +86,7 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       });
       const crudo = (await resp.text()).trim();
       let data: { resultado?: Resultado; error?: string } = {};
-      try { data = JSON.parse(crudo.slice(crudo.lastIndexOf('\n') + 1) || crudo); } catch { data = { error: crudo.slice(0, 300) || `La función respondió ${resp.status}` }; }
+      try { data = JSON.parse(crudo.slice(crudo.lastIndexOf('\n') + 1) || crudo); } catch { data = { error: crudo.slice(0, 300) || (resp.ok ? 'La función se cortó por tiempo antes de terminar (Supabase la limita a unos minutos). Probá de nuevo; si se repite, avisame.' : `La función respondió ${resp.status}`) }; }
       if (!resp.ok && !data.error) data.error = `La función respondió ${resp.status}. Revisá que exista en Supabase → Edge Functions con ese nombre exacto.`;
       if (data.error) throw new Error(`No se pudo ejecutar la función importar-liquidacion: ${data.error}`);
       const r = data.resultado as Resultado;
@@ -141,6 +141,8 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
     if (!res) return;
     setPaso('importando'); setError('');
     const log: string[] = [];
+    let consorcioCreado: string | null = null;   // para deshacer si algo falla a mitad de camino
+    let liquidacionCreada: string | null = null;
     try {
       const diaDe = (f: string | null, def: number) => (f ? Math.min(28, Number(f.slice(8, 10)) || def) : def);
       const v1 = cfg.vencimiento_1 || null, v2 = cfg.vencimiento_2 || null;
@@ -153,12 +155,14 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       // Consorcio
       let cid = consorcioId;
       if (!cid) {
+        const { data: repetido } = await supabase.from('consorcios').select('id').ilike('nombre', cfg.nombre.trim()).maybeSingle();
+        if (repetido) throw new Error(`Ya existe un consorcio llamado "${cfg.nombre.trim()}". Si querés cargar esta liquidación ahí, seleccionalo arriba y usá Expensas → Liquidaciones → Importar PDF; si es otro edificio, cambiale el nombre.`);
         const { data: c, error: cErr } = await supabase.from('consorcios').insert({
           nombre: cfg.nombre.trim(), direccion: cfg.direccion || null, cuit: cfg.cuit || null, ...config,
           notas: `Importado desde liquidación ${res.periodo}${res.administracion?.nombre ? ` (${res.administracion.nombre})` : ''}`,
         }).select().single();
         if (cErr) throw new Error(cErr.message);
-        cid = c.id; log.push(`Consorcio creado: ${c.nombre}`);
+        cid = c.id; consorcioCreado = c.id; log.push(`Consorcio creado: ${c.nombre}`);
       } else {
         await supabase.from('consorcios').update(config).eq('id', cid);
       }
@@ -213,6 +217,7 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
         notas: `Importada desde PDF${res.administracion?.nombre ? ` de ${res.administracion.nombre}` : ''}. Columnas: ${res.columnas.map((c) => `${c.categoria}=${c.titulo_pdf}`).join(', ')}.`,
       }).select().single();
       if (lErr) throw new Error(`Liquidación: ${lErr.message}`);
+      liquidacionCreada = liq.id;
 
       // Gastos
       const { error: gErr } = await supabase.from('gastos').insert(res.gastos.map((g) => ({
@@ -256,7 +261,10 @@ export function ImportarLiquidacion({ open, onClose, consorcioId, onImportado }:
       setPaso('listo');
       onImportado(cid!, liq.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Deshacer lo que se alcanzó a crear, para no dejar edificios o liquidaciones a medias
+      if (liquidacionCreada) await supabase.from('liquidaciones').delete().eq('id', liquidacionCreada);
+      if (consorcioCreado) await supabase.from('consorcios').delete().eq('id', consorcioCreado);
+      setError(`${e instanceof Error ? e.message : String(e)}${consorcioCreado || liquidacionCreada ? ' (no quedó nada cargado a medias)' : ''}`);
       setPaso('preview');
     }
   };
