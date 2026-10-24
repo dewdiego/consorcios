@@ -183,7 +183,7 @@ export function Noticias() {
         // Por mail: siempre si el canal es "mail" o "ambos"; si es sólo "app", se manda por mail a quien NO tiene la app
         if (canal === 'push' && conApp.has(d.email)) continue;
         filas.push({
-          comunicado_id: c.id, consorcio_id: u.consorcio_id, unidad_id: u.id, email: d.email, nombre: d.nombre,
+          comunicado_id: c.id, consorcio_id: u.consorcio_id, unidad_id: u.id, email: d.email, nombre: d.nombre, canal: 'mail',
           asunto: `${c.titulo} - ${consorcioNombre}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155">
   <div style="background:#14b8a6;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">

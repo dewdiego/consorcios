@@ -128,7 +128,7 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
       push_url: PORTAL_URL,
     }));
     const filas = destinatarios.map(({ cupon, email, nombre }) => ({
-      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, adjunto_path: liq.pdf_path,
+      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'mail', adjunto_path: liq.pdf_path,
       asunto: `Expensas ${periodo} - ${consorcioNombre} - UF ${cupon.unidades?.uf}`,
       adjunto_nombre: `Expensas_${liq.periodo}_${consorcioNombre.replace(/[^\w]+/g, '_')}.pdf`,
       html: armarHtml({
