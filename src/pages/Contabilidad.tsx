@@ -539,6 +539,7 @@ export function Contabilidad() {
       </Modal>
 
       <ConfirmDialog open={!!confirm} title={confirm?.title || ''} message={confirm?.message || ''} onCancel={() => setConfirm(null)}
+        peligro={/eliminar/i.test(confirm?.title || '')} confirmLabel={/eliminar/i.test(confirm?.title || '') ? 'Eliminar' : 'Confirmar'}
         onConfirm={async () => { if (!confirm) return; const a = confirm.action; setConfirm(null); await run(a); }} />
     </div>
   );

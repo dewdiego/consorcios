@@ -394,7 +394,8 @@ export function Noticias() {
       </Modal>
 
       <ConfirmDialog open={!!enviarTarget} title={enviarTarget?.ultimo_envio ? 'Reenviar comunicado' : 'Enviar comunicado'}
-        message={`Se envía "${enviarTarget?.titulo}" por mail a ${enviarTarget?.consorcio_id ? 'las unidades de ' + (enviarTarget?.consorcios?.nombre || 'el consorcio') : 'todas las unidades de todos los consorcios'}. ¿Continuar?`}
+        message={`Se envía "${enviarTarget?.titulo}" por ${enviarTarget?.canal === 'push' ? 'la app' : enviarTarget?.canal === 'ambos' ? 'mail y app' : 'mail'} a ${enviarTarget?.consorcio_id ? 'las unidades de ' + (enviarTarget?.consorcios?.nombre || 'el consorcio') : 'todas las unidades de todos los consorcios'}. ¿Continuar?`}
+        confirmLabel={enviarTarget?.ultimo_envio ? 'Reenviar' : 'Enviar'} peligro={false}
         onCancel={() => setEnviarTarget(null)}
         onConfirm={() => { const c = enviarTarget; setEnviarTarget(null); if (c) run(() => encolar(c, null)); }} />
 
