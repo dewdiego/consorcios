@@ -25,6 +25,7 @@ export type Notificacion = {
 export type Consorcio = {
   id: string; nombre: string; direccion: string | null; ciudad: string | null; cuit: string | null;
   telefono: string | null; email: string | null; cantidad_pisos: number; activo: boolean;
+  banco: string | null; cbu: string | null; fecha_asamblea: string | null; fecha_mandato_hasta: string | null;
   dia_vencimiento_1: number; dia_vencimiento_2: number;
   recargo_2do_venc_pct: number; interes_mora_mensual_pct: number;
   honorarios_mensuales: number; notas: string | null; created_at: string;
@@ -43,6 +44,17 @@ export type Proveedor = {
   id: string; nombre: string; cuit: string | null; telefono: string | null; email: string | null;
   contacto: string | null; direccion: string | null; categoria: string; cbu: string | null;
   activo: boolean; created_at: string;
+  condicion_iva: 'ri' | 'monotributo' | 'exento';
+  ret_ganancias: boolean; ret_ganancias_alic: number | null;
+  ret_iibb: boolean; ret_iibb_alic: number | null;
+  ret_suss: boolean; ret_suss_alic: number | null;
+};
+
+export type Parametro = { clave: string; grupo: string; descripcion: string; valor: number; orden: number };
+export type ConvenioEscala = { id: string; categoria: string; basico: number; vigencia_desde: string; notas: string | null };
+export type ConsorcioPoliza = {
+  id: string; consorcio_id: string; tipo: string; compania: string | null; numero: string | null;
+  vencimiento: string; monto: number | null; archivo_path: string | null; notas: string | null;
 };
 
 export type Certificacion = {
@@ -101,6 +113,7 @@ export type OrdenPago = {
   id: string; consorcio_id: string; proveedor_id: string | null; numero: number; fecha: string;
   monto: number; metodo: string; cheque_id: string | null;
   estado: 'pendiente' | 'pagada' | 'anulada'; observaciones: string | null; created_at: string;
+  retenciones_total: number; neto_pagado: number | null; fecha_pago: string | null;
   proveedores?: Proveedor;
 };
 
@@ -181,13 +194,20 @@ export type Empleado = {
   id: string; consorcio_id: string; nombre: string; cuil: string | null; cargo: string;
   categoria: string | null; sueldo_basico: number; antiguedad_fecha: string | null;
   vive_en_edificio: boolean; activo: boolean; created_at: string;
+  usar_escala: boolean; adic_titulo: boolean; adic_vidrios: boolean; adic_residuos: boolean; adic_jardin: boolean;
+  obra_social: string | null; cbu: string | null; fecha_egreso: string | null; jornada: string;
 };
+
+export type ReciboLinea = { concepto: string; tipo: 'rem' | 'norem' | 'desc'; monto: number; detalle?: string };
 
 export type SueldoLiquidacion = {
   id: string; consorcio_id: string; empleado_id: string; periodo: string;
   basico: number; antiguedad: number; adicionales: number; no_remunerativo: number;
   bruto: number; aportes: number; neto: number; contribuciones: number; costo_total: number;
   estado: 'preliquidada' | 'liquidada' | 'pagada'; gasto_id: string | null; created_at: string;
+  horas_50: number; horas_100: number; horas_extras: number; adic_convenio: number; sac: number;
+  vacaciones: number; dias_vacaciones: number; descuentos: number; detalle: ReciboLinea[] | null;
+  observaciones: string | null; fecha_pago: string | null; recibo_nro: number;
   empleados?: Empleado;
 };
 

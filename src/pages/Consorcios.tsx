@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Building2, Megaphone, Home, Users as UsersIcon, DollarSign, FileUp, Plus, Pencil, Search } from 'lucide-react';
+import { Building2, Megaphone, Home, Users as UsersIcon, DollarSign, FileUp, FolderOpen, Plus, Pencil, Search } from 'lucide-react';
 import { supabase, type Consorcio } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, Input, Modal, PageHeader, Spinner } from '@/components/ui';
 import type { PageKey } from '@/components/Layout';
 import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
+import { LegajoConsorcio } from '@/components/LegajoConsorcio';
 
 type Form = {
   nombre: string; direccion: string; ciudad: string; cuit: string; telefono: string; email: string;
@@ -32,6 +33,7 @@ export function Consorcios({ onNavigate }: { onNavigate?: (p: PageKey) => void }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [importar, setImportar] = useState(false);
+  const [legajo, setLegajo] = useState<Consorcio | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -129,6 +131,7 @@ export function Consorcios({ onNavigate }: { onNavigate?: (p: PageKey) => void }
                 <button title="Unidades" onClick={() => irA(c, 'unidades')} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-teal-50 hover:text-teal-600"><Home size={14} /></button>
                 <button title="Cuentas corrientes" onClick={() => irA(c, 'exp_ctacte')} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-teal-50 hover:text-teal-600"><UsersIcon size={14} /></button>
                 <button title="Expensas" onClick={() => irA(c, 'exp_liquidaciones')} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-teal-50 hover:text-teal-600"><DollarSign size={14} /></button>
+                <button title="Legajo (CUIT, banco, pólizas)" onClick={() => setLegajo(c)} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-teal-50 hover:text-teal-600"><FolderOpen size={14} /></button>
                 <div className="flex-1" />
                 <button title="Editar" onClick={() => openEdit(c)} className="p-2 rounded-lg text-slate-400 hover:bg-slate-100"><Pencil size={14} /></button>
               </div>
@@ -142,6 +145,8 @@ export function Consorcios({ onNavigate }: { onNavigate?: (p: PageKey) => void }
           )}
         </div>
       )}
+
+      <LegajoConsorcio consorcio={legajo} open={!!legajo} onClose={() => setLegajo(null)} onGuardado={async () => { await Promise.all([load(), reloadConsorcios()]); }} />
 
       <Modal open={modal} onClose={() => setModal(false)} title={editing ? 'Editar consorcio' : 'Nuevo consorcio'} size="lg">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

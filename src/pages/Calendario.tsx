@@ -28,11 +28,12 @@ export function Calendario() {
 
   const load = async () => {
     setLoading(true);
-    const [ev, liq, mnt, cert] = await Promise.all([
+    const [ev, liq, mnt, cert, pol] = await Promise.all([
       supabase.from('eventos').select('*, consorcios(nombre)').gte('fecha', desde).lte('fecha', hasta),
       supabase.from('liquidaciones').select('periodo, fecha_vencimiento_1, fecha_vencimiento_2, consorcios(nombre)').gte('fecha_vencimiento_1', desde).lte('fecha_vencimiento_1', hasta),
       supabase.from('mantenimientos').select('vencimiento, descripcion, mantenimiento_tipos(nombre), consorcios(nombre)').gte('vencimiento', desde).lte('vencimiento', hasta),
       supabase.from('proveedor_certificaciones').select('vencimiento, requerimiento, proveedores(nombre)').gte('vencimiento', desde).lte('vencimiento', hasta),
+      supabase.from('consorcio_polizas').select('vencimiento, tipo, compania, consorcios(nombre)').gte('vencimiento', desde).lte('vencimiento', hasta),
     ]);
     const out: Item[] = [];
     for (const e of (ev.data as (Evento & { consorcios: { nombre: string } | null })[]) || []) {
@@ -46,6 +47,9 @@ export function Calendario() {
     }
     for (const c of (cert.data as unknown as { vencimiento: string; requerimiento: string; proveedores: { nombre: string } | null }[]) || []) {
       out.push({ fecha: c.vencimiento, titulo: `Vence ${c.requerimiento} · ${c.proveedores?.nombre || ''}`, tipo: 'certificacion', origen: 'certificacion' });
+    }
+    for (const p of (pol.data as unknown as { vencimiento: string; tipo: string; compania: string | null; consorcios: { nombre: string } | null }[]) || []) {
+      out.push({ fecha: p.vencimiento, titulo: `Vence póliza ${p.tipo.replace('_', ' ')}${p.compania ? ` (${p.compania})` : ''} · ${p.consorcios?.nombre || ''}`, tipo: 'certificacion', origen: 'certificacion' });
     }
     setItems(out.filter((i) => !consorcio || !i.titulo || true)); // todos; el filtro visual es por color
     setLoading(false);

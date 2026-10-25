@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Download, Users, Wallet } from 'lucide-react';
-import { supabase, type Cupon, type Pago, type Unidad } from '@/lib/supabase';
+import { ArrowLeft, Download, FileBadge, Users, Wallet } from 'lucide-react';
+import { supabase, type Administracion, type Cupon, type Pago, type Unidad } from '@/lib/supabase';
+import { escHtml, imprimirHtml } from '@/lib/imprimir';
+import { Ayuda } from '@/components/Ayuda';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, PageHeader, Spinner, Table, Td } from '@/components/ui';
 import { exportCSV, fmtDate, fmtMoney, periodoLabel, round2, saldosPorUnidad, type SaldoUnidad } from '@/lib/engine';
@@ -99,6 +101,30 @@ function CtaCteDetalle({ unidad, onBack }: { unidad: Unidad; onBack: () => void 
     })();
   }, [unidad.id]);
 
+  /** Certificado de deuda para iniciar el reclamo judicial (Ley 13.512 / CCyC art. 2048: título ejecutivo). */
+  const certificado = async () => {
+    const { data: adm } = await supabase.from('administracion').select('*').limit(1).maybeSingle();
+    const a = adm as Administracion | null;
+    const pend = cupones.map((c) => {
+      const liq = c.liquidaciones as unknown as { periodo: string; fecha_vencimiento_1?: string };
+      return { periodo: liq.periodo, venc: liq.fecha_vencimiento_1, total: Number(c.total), intereses: Number(c.intereses) };
+    }).sort((x, y) => x.periodo.localeCompare(y.periodo));
+    const pagado = pagos.reduce((x, p) => x + Number(p.monto), 0);
+    // Se imputan los pagos a los períodos más viejos; lo que queda impago se detalla
+    let resto = pagado; const impagos: typeof pend = [];
+    for (const c of pend) { if (resto >= c.total - 0.01) { resto -= c.total; continue; } impagos.push({ ...c, total: round2(c.total - resto) }); resto = 0; }
+    const hoy = new Date().toISOString().slice(0, 10);
+    const html = `<div class="cab"><div><h1>CERTIFICADO DE DEUDA POR EXPENSAS</h1><div class="adm">${escHtml(a?.nombre || 'Administración')}${a?.rpa ? ` · RPA N° ${escHtml(a.rpa)}` : ''}${a?.cuit ? ` · CUIT ${escHtml(a.cuit)}` : ''}<br>${escHtml(a?.direccion || '')} ${a?.telefono ? `· Tel. ${escHtml(a.telefono)}` : ''}</div></div><div class="doc"><b>${fmtDate(hoy)}</b></div></div>
+      <p>Quien suscribe, <b>${escHtml(a?.nombre || '______________________')}</b>, en su carácter de administrador/a del <b>Consorcio de Propietarios ${escHtml(consorcio?.nombre || '')}</b>, con domicilio en ${escHtml(consorcio?.direccion || '______________')}${consorcio?.ciudad ? `, ${escHtml(consorcio.ciudad)}` : ''}, CUIT ${escHtml(consorcio?.cuit || '______________')}, <b>CERTIFICA</b> que la unidad funcional <b>N° ${unidad.uf}</b> (${escHtml(unidad.depto)}${unidad.piso ? `, piso ${escHtml(unidad.piso)}` : ''}), cuyo titular registrado es <b>${escHtml(unidad.propietario || '______________')}</b>${unidad.propietario_dni ? ` (DNI ${escHtml(unidad.propietario_dni)})` : ''}, adeuda al consorcio en concepto de expensas comunes la suma de <b>${fmtMoney(saldoFinal)}</b>, conforme el siguiente detalle:</p>
+      <table><thead><tr><th>Período</th><th>Vencimiento</th><th class="n">Importe adeudado</th><th class="n">de los cuales intereses</th></tr></thead><tbody>
+      ${impagos.map((c) => `<tr><td>${escHtml(periodoLabel(c.periodo))}</td><td>${fmtDate(c.venc)}</td><td class="n">${fmtMoney(c.total)}</td><td class="n">${c.intereses ? fmtMoney(c.intereses) : '—'}</td></tr>`).join('')}
+      <tr class="total"><td colspan="2">TOTAL ADEUDADO AL ${fmtDate(hoy)}</td><td class="n">${fmtMoney(saldoFinal)}</td><td></td></tr></tbody></table>
+      <p class="chico">Los importes incluyen los intereses por mora liquidados hasta la fecha según lo aprobado por el consorcio (${consorcio?.interes_mora_mensual_pct || 0}% mensual). A partir de la fecha de este certificado se devengarán los intereses que correspondan hasta el efectivo pago, con más las costas y gastos que origine el reclamo.</p>
+      <p class="chico">Se extiende el presente, que reviste el carácter de título ejecutivo en los términos del art. 2048 del Código Civil y Comercial de la Nación y el reglamento de copropiedad, a los efectos de iniciar las acciones legales correspondientes.</p>
+      <div class="firma"><div>${escHtml(a?.nombre || '')}<br><span class="chico">Administrador/a · Firma y sello</span></div><div>&nbsp;<br><span class="chico">Lugar y fecha</span></div></div>`;
+    imprimirHtml(`Certificado de deuda UF ${unidad.uf}`, html);
+  };
+
   // Línea de tiempo: débitos (cupones) y créditos (pagos)
   type Mov = { fecha: string; detalle: string; debe: number; haber: number };
   const movs: Mov[] = [
@@ -119,12 +145,20 @@ function CtaCteDetalle({ unidad, onBack }: { unidad: Unidad; onBack: () => void 
       <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-teal-600 font-medium mb-3 hover:underline"><ArrowLeft size={15} /> Volver a cuentas corrientes</button>
       <PageHeader title={`Cta. cte. UF ${unidad.uf} · ${unidad.depto}`}
         subtitle={`${unidad.propietario || 'Sin propietario'} · ${consorcio?.nombre}`}
-        action={
-          saldoFinal > 1 ? <Badge color="red">Saldo deudor: {fmtMoney(saldoFinal)}</Badge>
+        action={<div className="flex items-center gap-3">
+          {saldoFinal > 1 ? <Badge color="red">Saldo deudor: {fmtMoney(saldoFinal)}</Badge>
             : saldoFinal < -1 ? <Badge color="green">Saldo a favor: {fmtMoney(-saldoFinal)}</Badge>
-            : <Badge color="slate">Al día</Badge>
-        } />
+            : <Badge color="slate">Al día</Badge>}
+          {saldoFinal > 1 && <Button variant="secondary" onClick={certificado}><FileBadge size={15} /> Certificado de deuda</Button>}
+        </div>} />
 
+      {saldoFinal > 1 && <Ayuda id="ctacte_cert" titulo="Cómo reclamar la deuda">
+        <ol>
+          <li><b>Intimación</b>: primero un comunicado o carta documento al propietario con el saldo y un plazo (10 días es lo usual). Podés ofrecer un plan de pagos (Expensas → Planes de pago).</li>
+          <li><b>Certificado de deuda</b>: si no paga, el botón de arriba genera el certificado firmado por el administrador, que es título ejecutivo (art. 2048 CCyC). Se lo entregás al abogado junto con el reglamento de copropiedad, el acta de designación del administrador y las liquidaciones de los períodos adeudados (Expensas → Liquidaciones → PDF).</li>
+          <li>El abogado inicia el <b>juicio ejecutivo de expensas</b>; las costas y honorarios se le reclaman al deudor.</li>
+        </ol>
+      </Ayuda>}
       {loading ? <Spinner /> : conSaldo.length === 0 ? (
         <Card><EmptyState icon={<Wallet size={28} />} title="Sin movimientos" subtitle="Los cupones aparecen al cerrar cada liquidación." /></Card>
       ) : (

@@ -14,17 +14,27 @@ export function Tablero() {
   const [filas, setFilas] = useState<FilaUF[]>([]);
   const [gastosNoVinculados, setGastosNoVinculados] = useState<{ nombre: string; total: number }[]>([]);
   const [sueldosPct, setSueldosPct] = useState(0);
+  const [alertas, setAlertas] = useState<{ texto: string; vencida: boolean }[]>([]);
 
   const activos = consorcios.filter((c) => c.activo);
 
   const load = async () => {
     setLoading(true);
-    const [{ data: ls }, { data: pend }, { data: emps }, { data: sueldos }] = await Promise.all([
+    const limite = new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10);
+    const [{ data: ls }, { data: pend }, { data: emps }, { data: sueldos }, { data: pols }] = await Promise.all([
       supabase.from('liquidaciones').select('*').eq('periodo', periodo),
       supabase.from('gastos').select('consorcio_id, monto').is('liquidacion_id', null),
       supabase.from('empleados').select('id, consorcio_id').eq('activo', true),
       supabase.from('sueldo_liquidaciones').select('empleado_id').eq('periodo', periodo),
+      supabase.from('consorcio_polizas').select('vencimiento, tipo, consorcios(nombre)').lte('vencimiento', limite).order('vencimiento'),
     ]);
+    const hoy = new Date().toISOString().slice(0, 10);
+    const al: { texto: string; vencida: boolean }[] = [];
+    for (const p of (pols as unknown as { vencimiento: string; tipo: string; consorcios: { nombre: string } | null }[]) || []) {
+      al.push({ texto: `Póliza ${p.tipo.replace('_', ' ')} de ${p.consorcios?.nombre || ''} ${p.vencimiento < hoy ? 'venció' : 'vence'} el ${p.vencimiento.split('-').reverse().join('/')}`, vencida: p.vencimiento < hoy });
+    }
+    for (const c of consorcios) if (c.activo && c.fecha_mandato_hasta && c.fecha_mandato_hasta <= limite) al.push({ texto: `Mandato del administrador en ${c.nombre} ${c.fecha_mandato_hasta < hoy ? 'venció' : 'vence'} el ${c.fecha_mandato_hasta.split('-').reverse().join('/')}`, vencida: c.fecha_mandato_hasta < hoy });
+    setAlertas(al);
     const liqList = (ls as Liquidacion[]) || [];
     setLiqs(liqList);
 
@@ -78,7 +88,8 @@ export function Tablero() {
   return (
     <div>
       <PageHeader title="Tablero de control" subtitle="Estado global de la administración"
-        action={<div className="w-40"><Input label="Período" type="month" value={periodo} onChange={setPeriodo} /></div>} />
+        action={<div className="w-40"><Input label="Período" type="month" value={periodo} onChange={setPeriodo} />
+      {alertas.length > 0 && <div className="mb-4 space-y-1">{alertas.map((a, i) => <div key={i} className={`text-sm rounded-lg px-4 py-2 ${a.vencida ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-800'}`}>⚠ {a.texto}</div>)}</div>}</div>} />
 
       {loading ? <Spinner /> : (
         <>

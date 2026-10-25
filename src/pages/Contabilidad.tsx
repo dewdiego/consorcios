@@ -4,6 +4,8 @@ import { supabase, type Conciliacion, type Cuenta, type Movimiento, type OrdenPa
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { RendicionAnual } from '@/components/RendicionAnual';
+import { Ayuda } from '@/components/Ayuda';
 import { exportCSV, fmtDate, fmtMoney, hoyISO, periodoActual, round2 } from '@/lib/engine';
 
 /*
@@ -271,9 +273,28 @@ export function Contabilidad() {
         { key: 'cuentas', label: 'Cuentas', badge: cuentas.filter((c) => c.activa).length },
         { key: 'conciliaciones', label: 'Conciliaciones', badge: movs.filter((m) => !m.conciliado && m.cuenta_id).length },
         { key: 'retenciones', label: 'Retenciones', badge: retenciones.filter((r) => r.estado === 'pendiente').length || undefined },
+        { key: 'rendicion', label: 'Rendición anual' },
       ]} />
 
-      {loading ? <Spinner /> : cuentas.length === 0 && tab !== 'cuentas' ? (
+      {tab === 'retenciones' && <Ayuda id="cont_ret" titulo="Qué hacer con las retenciones">
+        <ul>
+          <li>Se generan solas al pagar una orden de pago a un proveedor con régimen marcado. También podés cargar una a mano.</li>
+          <li><b>Mensualmente, hasta el día 10</b>: Ganancias y SUSS se informan y pagan por ARCA → <b>SIRE</b>; Ingresos Brutos por <b>AGIP</b> (CABA) o <b>ARBA</b> (provincia). Después del pago, tocá <b>Depositar</b> en cada una: genera el egreso de la cuenta.</li>
+          <li>El proveedor necesita el <b>certificado de retención</b> para descontarla de sus impuestos: SIRE y AGIP lo emiten al presentar; cargá acá el número para tener trazabilidad.</li>
+          <li>Para el contador: "Exportar para el contador" trae CUIT, régimen, base, alícuota e importe de cada una.</li>
+        </ul>
+      </Ayuda>}
+      {tab === 'rendicion' && <Ayuda id="cont_rend" titulo="Para qué sirve la rendición anual y dónde se presenta">
+        <ul>
+          <li><b>Asamblea ordinaria</b>: la Ley 941 (CABA) obliga a rendir cuentas una vez por año; el PDF es lo que se reparte y aprueba. Convocala con 8 días de anticipación por comunicado (Noticias) y guardá el acta en Archivos.</li>
+          <li><b>DDJJ anual del RPA</b> (Registro Público de Administradores, CABA): se presenta por la web del RPA entre marzo y abril; pide por consorcio los datos del Legajo (CUIT, seguros, encargado) y los totales de gastos del año que ves acá.</li>
+          <li><b>Contador</b>: "Gastos del año" tiene todas las facturas con CUIT y comprobante; con eso arma lo que necesite.</li>
+        </ul>
+      </Ayuda>}
+      {tab === 'conciliaciones' && <Ayuda id="cont_conc" titulo="Cómo conciliar el banco">
+        <p>Una vez por mes, con el extracto del banco a la vista: elegí la cuenta y el mes, cargá el saldo final del extracto, y tildá cada movimiento que aparece en el extracto. Cuando la diferencia da cero, cerrá la conciliación. Si no da, falta cargar un movimiento (comisiones, impuesto al cheque, un cobro no registrado): se carga en Movimientos.</p>
+      </Ayuda>}
+      {loading ? <Spinner /> : tab === 'rendicion' ? <RendicionAnual consorcio={consorcio} /> : cuentas.length === 0 && tab !== 'cuentas' ? (
         <Card><EmptyState icon={<Landmark size={28} />} title="Primero creá las cuentas del consorcio" subtitle="Al menos una caja o cuenta bancaria. La predeterminada recibe los cobros y pagos automáticamente." /><div className="text-center pb-4"><Button onClick={() => { setTab('cuentas'); abrirCuenta(); }}><Plus size={16} /> Crear cuenta</Button></div></Card>
       ) : tab === 'movimientos' ? (
         <>
@@ -438,8 +459,8 @@ export function Contabilidad() {
         return (
           <>
             <Card className="mb-4"><div className="flex flex-wrap items-end gap-4">{filtroPeriodo}
-              <Button variant="secondary" size="sm" onClick={() => exportCSV(`retenciones-${consorcio.nombre}-${periodo}.csv`, ['Fecha', 'Tipo', 'Proveedor', 'Base', 'Alícuota', 'Monto', 'Certificado', 'Estado'],
-                lista.map((r) => [r.fecha, r.tipo, r.proveedores?.nombre || '', r.base ?? '', r.alicuota ?? '', Number(r.monto), r.certificado || '', r.estado]))}><Download size={14} /> Exportar</Button></div></Card>
+              <Button variant="secondary" size="sm" onClick={() => exportCSV(`retenciones-${consorcio.nombre}-${periodo}.csv`, ['Fecha', 'Régimen', 'Proveedor', 'CUIT', 'Cond. IVA', 'OP', 'Base', 'Alícuota %', 'Monto retenido', 'Certificado', 'Estado', 'Fecha depósito', 'Consorcio', 'CUIT consorcio'],
+                lista.map((r) => { const op = ops.find((o) => o.id === r.orden_pago_id); return [r.fecha, r.tipo.toUpperCase(), r.proveedores?.nombre || '', r.proveedores?.cuit || '', r.proveedores?.condicion_iva || '', op ? `OP-${String(op.numero).padStart(4, '0')}` : '', r.base ?? '', r.alicuota ?? '', Number(r.monto), r.certificado || '', r.estado, r.depositada_at || '', consorcio.nombre, consorcio.cuit || '']; }))}><Download size={14} /> Exportar para el contador (SIRE / AGIP)</Button></div></Card>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-sm">
               {porTipo.map((t) => <div key={t.value} className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-xs text-slate-500">{t.label} · practicadas en {periodo}</div><div className="text-lg font-bold">{fmtMoney(t.per)}</div><div className={`text-xs ${t.pend ? 'text-red-500' : 'text-slate-400'}`}>a depositar: {fmtMoney(t.pend)}</div></div>)}
             </div>

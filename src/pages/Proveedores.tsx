@@ -21,7 +21,7 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
 
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<Proveedor | null>(null);
-  const [form, setForm] = useState({ nombre: '', cuit: '', telefono: '', email: '', contacto: '', direccion: '', categoria: 'otros', cbu: '', activo: true });
+  const [form, setForm] = useState({ nombre: '', cuit: '', telefono: '', email: '', contacto: '', direccion: '', categoria: 'otros', cbu: '', activo: true, condicion_iva: 'ri', ret_ganancias: false, ret_ganancias_alic: '', ret_iibb: false, ret_iibb_alic: '', ret_suss: false, ret_suss_alic: '' });
   const [deleteTarget, setDeleteTarget] = useState<Proveedor | null>(null);
 
   const [certModal, setCertModal] = useState(false);
@@ -48,10 +48,10 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
   };
   useEffect(() => { load(); }, []);
 
-  const openNew = () => { setEditing(null); setForm({ nombre: '', cuit: '', telefono: '', email: '', contacto: '', direccion: '', categoria: 'otros', cbu: '', activo: true }); setModal(true); };
+  const openNew = () => { setEditing(null); setForm({ nombre: '', cuit: '', telefono: '', email: '', contacto: '', direccion: '', categoria: 'otros', cbu: '', activo: true, condicion_iva: 'ri', ret_ganancias: false, ret_ganancias_alic: '', ret_iibb: false, ret_iibb_alic: '', ret_suss: false, ret_suss_alic: '' }); setModal(true); };
   const openEdit = (p: Proveedor) => {
     setEditing(p);
-    setForm({ nombre: p.nombre, cuit: p.cuit || '', telefono: p.telefono || '', email: p.email || '', contacto: p.contacto || '', direccion: p.direccion || '', categoria: p.categoria, cbu: p.cbu || '', activo: p.activo });
+    setForm({ nombre: p.nombre, cuit: p.cuit || '', telefono: p.telefono || '', email: p.email || '', contacto: p.contacto || '', direccion: p.direccion || '', categoria: p.categoria, cbu: p.cbu || '', activo: p.activo, condicion_iva: p.condicion_iva || 'ri', ret_ganancias: !!p.ret_ganancias, ret_ganancias_alic: p.ret_ganancias_alic == null ? '' : String(p.ret_ganancias_alic), ret_iibb: !!p.ret_iibb, ret_iibb_alic: p.ret_iibb_alic == null ? '' : String(p.ret_iibb_alic), ret_suss: !!p.ret_suss, ret_suss_alic: p.ret_suss_alic == null ? '' : String(p.ret_suss_alic) });
     setModal(true);
   };
 
@@ -61,6 +61,10 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
       nombre: form.nombre.trim(), cuit: form.cuit || null, telefono: form.telefono || null,
       email: form.email || null, contacto: form.contacto || null, direccion: form.direccion || null,
       categoria: form.categoria, cbu: form.cbu || null, activo: form.activo,
+      condicion_iva: form.condicion_iva,
+      ret_ganancias: form.ret_ganancias, ret_ganancias_alic: form.ret_ganancias_alic === '' ? null : parseFloat(form.ret_ganancias_alic),
+      ret_iibb: form.ret_iibb, ret_iibb_alic: form.ret_iibb_alic === '' ? null : parseFloat(form.ret_iibb_alic),
+      ret_suss: form.ret_suss, ret_suss_alic: form.ret_suss_alic === '' ? null : parseFloat(form.ret_suss_alic),
     };
     const q = editing ? supabase.from('proveedores').update(payload).eq('id', editing.id) : supabase.from('proveedores').insert(payload);
     await q;
@@ -118,7 +122,7 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
                 <tr key={p.id} className="hover:bg-slate-50">
                   <Td className="font-medium">{p.nombre}</Td>
                   <Td className="capitalize text-slate-500">{p.categoria}</Td>
-                  <Td className="font-mono text-xs">{p.cuit || '—'}</Td>
+                  <Td className="font-mono text-xs">{p.cuit || '—'}<div className="text-[10px] text-slate-400 font-sans">{p.condicion_iva === 'ri' ? 'RI' : p.condicion_iva === 'monotributo' ? 'Monotrib.' : 'Exento'}{[p.ret_ganancias && 'Gan', p.ret_iibb && 'IIBB', p.ret_suss && 'SUSS'].filter(Boolean).length ? ` · ret: ${[p.ret_ganancias && 'Gan', p.ret_iibb && 'IIBB', p.ret_suss && 'SUSS'].filter(Boolean).join('/')}` : ''}</div></Td>
                   <Td>{p.contacto || '—'}</Td>
                   <Td>{p.telefono || '—'}</Td>
                   <Td className="text-slate-500">{p.email || '—'}</Td>
@@ -208,6 +212,20 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
           <Input label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
           <Input label="Dirección" value={form.direccion} onChange={(v) => setForm({ ...form, direccion: v })} />
           <Input label="CBU / Alias" value={form.cbu} onChange={(v) => setForm({ ...form, cbu: v })} />
+          <Select label="Condición frente al IVA" value={form.condicion_iva} onChange={(v) => setForm({ ...form, condicion_iva: v })}
+            options={[{ value: 'ri', label: 'Responsable inscripto' }, { value: 'monotributo', label: 'Monotributista' }, { value: 'exento', label: 'Exento / no alcanzado' }]} />
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <p className="text-sm font-semibold text-slate-700 mb-1">Retenciones al pagarle</p>
+          <p className="text-xs text-slate-400 mb-3">Al pagar una orden, el sistema calcula y descuenta lo marcado. Alícuota vacía = usa la de Parámetros. La base es el importe sin IVA si es responsable inscripto.</p>
+          <div className="grid grid-cols-3 gap-3">
+            {([['ret_ganancias', 'ret_ganancias_alic', 'Ganancias'], ['ret_iibb', 'ret_iibb_alic', 'Ingresos Brutos'], ['ret_suss', 'ret_suss_alic', 'SUSS']] as const).map(([k, ka, l]) => (
+              <div key={k} className="rounded-lg border border-slate-200 p-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700 font-medium mb-2"><input type="checkbox" checked={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.checked })} className="rounded" /> {l}</label>
+                <Input label="Alícuota %" type="number" step="0.01" value={form[ka]} onChange={(v) => setForm({ ...form, [ka]: v })} placeholder="por defecto" />
+              </div>
+            ))}
+          </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-600 mt-4">
           <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} className="rounded" /> Activo
