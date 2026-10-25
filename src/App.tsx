@@ -8,6 +8,7 @@ import { Configuracion } from '@/pages/Configuracion';
 import { Consorcios } from '@/pages/Consorcios';
 import { MisFacturas } from '@/pages/MisFacturas';
 import { Notificaciones } from '@/pages/Notificaciones';
+import { PortalVecinos } from '@/pages/PortalVecinos';
 import { EnviosMail } from '@/pages/EnviosMail';
 import { Usuarios } from '@/pages/Usuarios';
 import { ExportDatos } from '@/pages/ExportDatos';
@@ -42,6 +43,7 @@ function Pages({ page, onNavigate }: { page: PageKey; onNavigate: (p: PageKey) =
     case 'mis_facturas': return <MisFacturas />;
     case 'notificaciones': return <Notificaciones />;
     case 'envios_mail': return <EnviosMail />;
+    case 'portal': return <PortalVecinos />;
     case 'usuarios': return <Usuarios />;
     case 'export_datos': return <ExportDatos />;
     case 'acciones_masivas': return <AccionesMasivas />;

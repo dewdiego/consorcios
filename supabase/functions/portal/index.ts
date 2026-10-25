@@ -6,6 +6,7 @@
 //   suscribir     { suscripcion, ua }  → registra el dispositivo para push (requiere sesión)
 //   desuscribir   { endpoint }         → da de baja el dispositivo (requiere sesión)
 //   vapid                              → clave pública VAPID para el navegador
+//   ver-como      { email }            → lo mismo que mis-datos pero para otro mail; sólo para administradores (tabla usuarios)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const cors = {
@@ -34,33 +35,10 @@ async function unidadesDe(sb: ReturnType<typeof createClient>, email: string) {
   }[];
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
-  let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { /* vacío */ }
-  const accion = String(body.accion || '');
-  const sb = createClient(URL_SB, SERVICE);
-
-  if (accion === 'vapid') return json({ clave: Deno.env.get('VAPID_PUBLIC_KEY') || null });
-
-  if (accion === 'verificar') {
-    const email = String(body.email || '').trim().toLowerCase();
-    if (!email.includes('@')) return json({ ok: false, error: 'Ingresá un mail válido.' });
+/** Todo lo que ve un vecino en el portal: unidades con su última expensa, comunicados, info útil. */
+async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
     const us = await unidadesDe(sb, email);
-    if (us.length === 0) return json({ ok: false, error: 'Ese mail no figura en ninguna unidad. Pedile a la administración que lo cargue.' });
-    return json({ ok: true, consorcios: [...new Set(us.map((u) => u.consorcios?.nombre))] });
-  }
-
-  // ---- Acciones con sesión: el usuario viene en el JWT ----
-  const auth = req.headers.get('Authorization') || '';
-  const userClient = createClient(URL_SB, ANON, { global: { headers: { Authorization: auth } } });
-  const { data: { user } } = await userClient.auth.getUser();
-  if (!user?.email) return json({ error: 'Sesión inválida. Volvé a ingresar.' }, 401);
-  const email = user.email.toLowerCase();
-
-  if (accion === 'mis-datos') {
-    const us = await unidadesDe(sb, email);
-    if (us.length === 0) return json({ error: 'Tu mail ya no figura en ninguna unidad.' }, 403);
+    if (us.length === 0) return { error: 'Tu mail ya no figura en ninguna unidad.' };
     const consorcioIds = [...new Set(us.map((u) => u.consorcio_id))];
 
     // Última liquidación cerrada/enviada de cada consorcio + el cupón de cada unidad
@@ -103,8 +81,53 @@ Deno.serve(async (req) => {
     }));
 
     const { data: subs } = await sb.from('push_suscripciones').select('endpoint').ilike('email', email).eq('activa', true);
-    const { data: adm } = await sb.from('administracion').select('nombre, telefono, email').limit(1).maybeSingle();
-    return json({ email, unidades, comunicados: coms, dispositivos: (subs || []).length, administracion: adm });
+    const { data: adm } = await sb.from('administracion').select('nombre, telefono, email, direccion, horario_atencion').limit(1).maybeSingle();
+    // Info útil: administración, datos cargados por el admin y teléfonos (generales + del consorcio)
+    const [{ data: info }, { data: tels }] = await Promise.all([
+      sb.from('portal_info').select('titulo, contenido, consorcio_id, consorcios(nombre)').eq('activo', true).or(`consorcio_id.is.null,consorcio_id.in.(${consorcioIds.join(',')})`).order('orden').order('created_at'),
+      sb.from('telefonos').select('nombre, categoria, telefono, notas, consorcio_id, consorcios(nombre)').eq('visible_portal', true).or(`consorcio_id.is.null,consorcio_id.in.(${consorcioIds.join(',')})`).order('categoria').order('nombre'),
+    ]);
+    const conNombre = <T extends { consorcios?: unknown }>(x: T) => ({ ...x, consorcio: (x.consorcios as { nombre: string } | null)?.nombre || null, consorcios: undefined });
+    return { email, unidades, comunicados: coms, dispositivos: (subs || []).length, administracion: adm, info: (info || []).map(conNombre), telefonos: (tels || []).map(conNombre) };
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* vacío */ }
+  const accion = String(body.accion || '');
+  const sb = createClient(URL_SB, SERVICE);
+
+  if (accion === 'vapid') return json({ clave: Deno.env.get('VAPID_PUBLIC_KEY') || null });
+
+  if (accion === 'verificar') {
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email.includes('@')) return json({ ok: false, error: 'Ingresá un mail válido.' });
+    const us = await unidadesDe(sb, email);
+    if (us.length === 0) return json({ ok: false, error: 'Ese mail no figura en ninguna unidad. Pedile a la administración que lo cargue.' });
+    return json({ ok: true, consorcios: [...new Set(us.map((u) => u.consorcios?.nombre))] });
+  }
+
+  // ---- Acciones con sesión: el usuario viene en el JWT ----
+  const auth = req.headers.get('Authorization') || '';
+  const userClient = createClient(URL_SB, ANON, { global: { headers: { Authorization: auth } } });
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user?.email) return json({ error: 'Sesión inválida. Volvé a ingresar.' }, 401);
+  const email = user.email.toLowerCase();
+
+  if (accion === 'mis-datos') {
+    const d = await datosDe(sb, email);
+    return 'error' in d ? json(d, 403) : json(d);
+  }
+
+  if (accion === 'ver-como') {
+    // Sólo administradores (mail en la tabla usuarios, activo)
+    const { data: adm } = await sb.from('usuarios').select('id').ilike('email', email).eq('activo', true).maybeSingle();
+    if (!adm) return json({ error: 'Sólo para administradores.' }, 403);
+    const objetivo = String(body.email || '').trim().toLowerCase();
+    if (!objetivo.includes('@')) return json({ error: 'Indicá el mail del vecino.' }, 400);
+    const d = await datosDe(sb, objetivo);
+    return 'error' in d ? json(d, 404) : json(d);
   }
 
   if (accion === 'suscribir') {

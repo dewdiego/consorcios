@@ -11,7 +11,7 @@ export const supabase = createClient(url, key);
 export type Administracion = {
   id: string; nombre: string; cuit: string | null; email: string | null; telefono: string | null;
   direccion: string | null; rpa: string | null; logo_url: string | null; logo_web_url: string | null;
-  firma_url: string | null;
+  firma_url: string | null; horario_atencion: string | null;
 };
 
 export type Usuario = {
@@ -247,7 +247,7 @@ export type Archivo = {
 };
 
 export type Telefono = {
-  id: string; consorcio_id: string | null; nombre: string; categoria: string; telefono: string; notas: string | null;
+  id: string; consorcio_id: string | null; nombre: string; categoria: string; telefono: string; notas: string | null; visible_portal: boolean;
 };
 
 export type Encuesta = {
