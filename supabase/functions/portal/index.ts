@@ -25,13 +25,13 @@ const ANON = Deno.env.get('SUPABASE_ANON_KEY')!;
 async function unidadesDe(sb: ReturnType<typeof createClient>, email: string) {
   const e = email.trim().toLowerCase();
   const { data } = await sb.from('unidades')
-    .select('id, uf, depto, piso, propietario, propietario_email, inquilino, inquilino_email, alquilada, consorcio_id, consorcios(id, nombre, direccion)')
+    .select('id, uf, depto, piso, propietario, propietario_email, inquilino, inquilino_email, alquilada, consorcio_id, consorcios(id, nombre, direccion, administracion_id)')
     .eq('activo', true)
     .or(`propietario_email.ilike.${e},inquilino_email.ilike.${e}`);
   return (data || []) as unknown as {
     id: string; uf: number; depto: string; piso: string | null; propietario: string | null; propietario_email: string | null;
     inquilino: string | null; inquilino_email: string | null; alquilada: boolean; consorcio_id: string;
-    consorcios: { id: string; nombre: string; direccion: string | null } | null;
+    consorcios: { id: string; nombre: string; direccion: string | null; administracion_id: string | null } | null;
   }[];
 }
 
@@ -40,6 +40,9 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
     const us = await unidadesDe(sb, email);
     if (us.length === 0) return { error: 'Tu mail ya no figura en ninguna unidad.' };
     const consorcioIds = [...new Set(us.map((u) => u.consorcio_id))];
+    // Administraciones de esos consorcios: lo "general" (sin consorcio) se filtra por ellas, para no mezclar administradoras
+    const admIds = [...new Set(us.map((u) => u.consorcios?.administracion_id).filter(Boolean))] as string[];
+    const generalDe = (col = 'consorcio_id') => admIds.length ? `${col}.in.(${consorcioIds.join(',')}),and(${col}.is.null,administracion_id.in.(${admIds.join(',')}))` : `${col}.in.(${consorcioIds.join(',')})`;
 
     // Última liquidación cerrada/enviada de cada consorcio + el cupón de cada unidad
     const { data: liqs } = await sb.from('liquidaciones')
@@ -73,7 +76,7 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
     const { data: comunicados } = await sb.from('comunicados')
       .select('id, titulo, contenido, tipo, fecha_publicacion, consorcio_id, adjunto_path, consorcios(nombre)')
       .eq('seccion', 'comunicados').eq('activo', true).neq('estado', 'borrador')
-      .or(`consorcio_id.is.null,consorcio_id.in.(${consorcioIds.join(',')})`)
+      .or(generalDe())
       .order('fecha_publicacion', { ascending: false }).limit(30);
     const coms = (comunicados || []).map((c) => ({
       ...c, consorcio: (c.consorcios as unknown as { nombre: string } | null)?.nombre || 'Todos', consorcios: undefined,
@@ -81,11 +84,13 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
     }));
 
     const { data: subs } = await sb.from('push_suscripciones').select('endpoint').ilike('email', email).eq('activa', true);
-    const { data: adm } = await sb.from('administracion').select('nombre, telefono, email, direccion, horario_atencion').limit(1).maybeSingle();
+    const { data: adm } = admIds.length
+      ? await sb.from('administracion').select('nombre, telefono, email, direccion, horario_atencion').eq('id', admIds[0]).maybeSingle()
+      : await sb.from('administracion').select('nombre, telefono, email, direccion, horario_atencion').limit(1).maybeSingle();
     // Info útil: administración, datos cargados por el admin y teléfonos (generales + del consorcio)
     const [{ data: info }, { data: tels }] = await Promise.all([
-      sb.from('portal_info').select('titulo, contenido, consorcio_id, consorcios(nombre)').eq('activo', true).or(`consorcio_id.is.null,consorcio_id.in.(${consorcioIds.join(',')})`).order('orden').order('created_at'),
-      sb.from('telefonos').select('nombre, categoria, telefono, notas, consorcio_id, consorcios(nombre)').eq('visible_portal', true).or(`consorcio_id.is.null,consorcio_id.in.(${consorcioIds.join(',')})`).order('categoria').order('nombre'),
+      sb.from('portal_info').select('titulo, contenido, consorcio_id, consorcios(nombre)').eq('activo', true).or(generalDe()).order('orden').order('created_at'),
+      sb.from('telefonos').select('nombre, categoria, telefono, notas, consorcio_id, consorcios(nombre)').eq('visible_portal', true).or(generalDe()).order('categoria').order('nombre'),
     ]);
     const conNombre = <T extends { consorcios?: unknown }>(x: T) => ({ ...x, consorcio: (x.consorcios as { nombre: string } | null)?.nombre || null, consorcios: undefined });
     return { email, unidades, comunicados: coms, dispositivos: (subs || []).length, administracion: adm, info: (info || []).map(conNombre), telefonos: (tels || []).map(conNombre) };

@@ -11,11 +11,12 @@ export const supabase = createClient(url, key);
 export type Administracion = {
   id: string; nombre: string; cuit: string | null; email: string | null; telefono: string | null;
   direccion: string | null; rpa: string | null; logo_url: string | null; logo_web_url: string | null;
-  firma_url: string | null; horario_atencion: string | null;
+  firma_url: string | null; horario_atencion: string | null; activa: boolean;
 };
 
 export type Usuario = {
   id: string; nombre: string; email: string; rol: 'admin' | 'operador' | 'consulta'; activo: boolean; created_at: string;
+  administracion_id: string | null; superadmin: boolean;
 };
 
 export type Notificacion = {

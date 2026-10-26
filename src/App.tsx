@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AppProvider, useApp } from '@/context/AppContext';
-import { Login, SinPermiso } from '@/pages/Login';
+import { Login, SinPermiso, NuevaContrasena } from '@/pages/Login';
 import { Spinner } from '@/components/ui';
 import { Layout, type PageKey } from '@/components/Layout';
 import { Tablero } from '@/pages/Tablero';
@@ -75,9 +75,10 @@ function Pages({ page, onNavigate }: { page: PageKey; onNavigate: (p: PageKey) =
 
 function Shell() {
   const [page, setPage] = useState<PageKey>('tablero');
-  const { estadoAuth, email } = useApp();
+  const { estadoAuth, email, elegirContrasena } = useApp();
   if (estadoAuth === 'cargando') return <div className="min-h-screen flex items-center justify-center"><Spinner /></div>;
   if (estadoAuth === 'anonimo') return <Login />;
+  if (elegirContrasena) return <NuevaContrasena />;
   if (estadoAuth === 'sin_permiso') return <SinPermiso email={email} />;
   return (
     <Layout page={page} onNavigate={setPage}>

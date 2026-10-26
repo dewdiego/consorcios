@@ -166,12 +166,21 @@ Deno.serve(async (req) => {
         attachments.push({ filename: item.adjunto_nombre || path.split('/').pop() || 'adjunto.pdf', content: contenido });
       }
 
+      // Remitente con el nombre de la administración del consorcio (multi-administración); la casilla es la del dominio verificado
+      let from = FROM, replyTo = REPLY_TO || null;
+      if (item.consorcio_id) {
+        const { data: c } = await sb.from('consorcios').select('administracion(nombre, email)').eq('id', item.consorcio_id).maybeSingle();
+        const a = (c?.administracion as unknown as { nombre?: string; email?: string } | null);
+        const direccion = FROM.match(/<([^>]+)>/)?.[1] || FROM;
+        if (a?.nombre) from = `${a.nombre.replace(/[<>"]/g, '')} <${direccion}>`;
+        if (a?.email) replyTo = a.email;
+      }
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: FROM, to: [item.email], subject: item.asunto, html: item.html, text: aTexto(item.html),
-          ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
+          from, to: [item.email], subject: item.asunto, html: item.html, text: aTexto(item.html),
+          ...(replyTo ? { reply_to: replyTo } : {}),
           ...(attachments.length ? { attachments } : {}),
         }),
       });

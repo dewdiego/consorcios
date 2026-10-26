@@ -13,6 +13,10 @@ type AppCtx = {
   setUsuario: (n: string) => void;
   email: string;
   rol: string;
+  superadmin: boolean;
+  administracionId: string | null;
+  elegirContrasena: boolean;              // llegó por link de invitación / recuperación: tiene que definir contraseña
+  setElegirContrasena: (v: boolean) => void;
   estadoAuth: EstadoAuth;
   cerrarSesion: () => Promise<void>;
 };
@@ -27,6 +31,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [usuario, setUsuarioState] = useState('Administrador');
   const [email, setEmail] = useState('');
   const [rol, setRol] = useState('');
+  const [superadmin, setSuperadmin] = useState(false);
+  const [administracionId, setAdministracionId] = useState<string | null>(null);
+  const [elegirContrasena, setElegirContrasena] = useState(() => /type=(invite|recovery|magiclink)/.test(window.location.hash));
   const [estadoAuth, setEstadoAuth] = useState<EstadoAuth>('cargando');
   const emailRef = useRef('');
   useEffect(() => { emailRef.current = email; }, [email]);
@@ -47,10 +54,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEmail(mail);
     try {
       // Con las políticas cerradas, un vecino logueado no puede leer "usuarios" → data vacía → sin permiso
-      const { data } = await conTimeout(supabase.from('usuarios').select('nombre, rol, activo').ilike('email', mail).maybeSingle(), 15000);
+      const { data } = await conTimeout(supabase.from('usuarios').select('nombre, rol, activo, superadmin, administracion_id').ilike('email', mail).maybeSingle(), 15000);
       if (!data || !data.activo) { setEstadoAuth('sin_permiso'); return; }
       setUsuarioState(data.nombre || mail);
       setRol(data.rol || 'operador');
+      setSuperadmin(!!data.superadmin);
+      setAdministracionId(data.administracion_id || null);
       setEstadoAuth('ok');
       await reloadConsorcios();
     } catch {
@@ -71,6 +80,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(() => recargarUnaVez());
     const { data: sub } = supabase.auth.onAuthStateChange((evento, session) => {
       // setTimeout: nunca llamar a supabase dentro del callback de auth (se traba con su propio lock)
+      if (evento === 'PASSWORD_RECOVERY') setElegirContrasena(true);
       if (evento === 'SIGNED_OUT') setTimeout(() => resolverSesion(null), 0);
       else if (evento === 'SIGNED_IN' || evento === 'USER_UPDATED') {
         const nuevoMail = session?.user?.email?.toLowerCase() || '';
@@ -92,7 +102,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const consorcio = consorcios.find((c) => c.id === consorcioId) || null;
 
   return (
-    <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario: setUsuarioState, email, rol, estadoAuth, cerrarSesion }}>
+    <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario: setUsuarioState, email, rol, superadmin, administracionId, elegirContrasena, setElegirContrasena, estadoAuth, cerrarSesion }}>
       {children}
     </Ctx.Provider>
   );
