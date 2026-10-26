@@ -116,3 +116,33 @@ GRANT SELECT ON push_emails TO authenticated;
 SELECT a.nombre AS administracion, u.email, u.rol, u.superadmin, u.activo,
        (SELECT count(*) FROM consorcios c WHERE c.administracion_id = a.id) AS consorcios
 FROM usuarios u JOIN administracion a ON a.id = u.administracion_id ORDER BY a.nombre, u.email;
+
+-- ==================== 6. Superadmin: "trabajar como" una administración ====================
+-- ver_todo = true → ve todas las administraciones mezcladas. false → se comporta como un admin de `administracion_id`
+-- (ve sólo eso y lo que carga nace ahí). Se cambia desde el selector de la barra superior.
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ver_todo boolean NOT NULL DEFAULT true;
+
+CREATE OR REPLACE FUNCTION es_superadmin() RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM usuarios u WHERE lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', '')) AND u.activo AND u.superadmin AND u.ver_todo);
+$$;
+-- Tiene el flag de superadmin (para gestionar administraciones y usuarios), esté en modo global o no
+CREATE OR REPLACE FUNCTION tiene_superadmin() RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM usuarios u WHERE lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', '')) AND u.activo AND u.superadmin);
+$$;
+-- Cambia la administración activa del superadmin logueado (NULL = ver todas)
+CREATE OR REPLACE FUNCTION cambiar_administracion(aid uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT tiene_superadmin() THEN RAISE EXCEPTION 'Sólo un superadmin puede cambiar de administración'; END IF;
+  IF aid IS NULL THEN
+    UPDATE usuarios SET ver_todo = true WHERE lower(email) = lower(auth.jwt() ->> 'email');
+  ELSE
+    UPDATE usuarios SET ver_todo = false, administracion_id = aid WHERE lower(email) = lower(auth.jwt() ->> 'email');
+  END IF;
+END $$;
+GRANT EXECUTE ON FUNCTION tiene_superadmin(), cambiar_administracion(uuid) TO authenticated;
+-- La lista de administraciones la ve siempre el superadmin (para poder elegir)
+DROP POLICY IF EXISTS "admin_all_administracion" ON administracion;
+CREATE POLICY "admin_all_administracion" ON administracion FOR ALL TO authenticated USING (tiene_superadmin() OR adm_visible(id)) WITH CHECK (tiene_superadmin() OR adm_visible(id));

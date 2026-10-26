@@ -15,6 +15,9 @@ type AppCtx = {
   rol: string;
   superadmin: boolean;
   administracionId: string | null;
+  verTodo: boolean;                       // superadmin en modo "todas las administraciones"
+  administraciones: { id: string; nombre: string }[];
+  cambiarAdministracion: (id: string | null) => Promise<void>;
   elegirContrasena: boolean;              // llegó por link de invitación / recuperación: tiene que definir contraseña
   setElegirContrasena: (v: boolean) => void;
   estadoAuth: EstadoAuth;
@@ -33,6 +36,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [rol, setRol] = useState('');
   const [superadmin, setSuperadmin] = useState(false);
   const [administracionId, setAdministracionId] = useState<string | null>(null);
+  const [verTodo, setVerTodo] = useState(true);
+  const [administraciones, setAdministraciones] = useState<{ id: string; nombre: string }[]>([]);
   const [elegirContrasena, setElegirContrasena] = useState(() => /type=(invite|recovery|magiclink)/.test(window.location.hash));
   const [estadoAuth, setEstadoAuth] = useState<EstadoAuth>('cargando');
   const emailRef = useRef('');
@@ -54,12 +59,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEmail(mail);
     try {
       // Con las políticas cerradas, un vecino logueado no puede leer "usuarios" → data vacía → sin permiso
-      const { data } = await conTimeout(supabase.from('usuarios').select('nombre, rol, activo, superadmin, administracion_id').ilike('email', mail).maybeSingle(), 15000);
+      const { data } = await conTimeout(supabase.from('usuarios').select('nombre, rol, activo, superadmin, administracion_id, ver_todo').ilike('email', mail).maybeSingle(), 15000);
       if (!data || !data.activo) { setEstadoAuth('sin_permiso'); return; }
       setUsuarioState(data.nombre || mail);
       setRol(data.rol || 'operador');
       setSuperadmin(!!data.superadmin);
       setAdministracionId(data.administracion_id || null);
+      setVerTodo(data.ver_todo !== false);
+      if (data.superadmin) {
+        const { data: ads } = await supabase.from('administracion').select('id, nombre').eq('activa', true).order('nombre');
+        setAdministraciones((ads as { id: string; nombre: string }[]) || []);
+      }
       setEstadoAuth('ok');
       await reloadConsorcios();
     } catch {
@@ -97,12 +107,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { id ? localStorage.setItem('consorcio_activo', id) : localStorage.removeItem('consorcio_activo'); } catch { /* noop */ }
   };
 
+  /** Superadmin: trabajar como una administración (null = todas). Recarga para que todo se filtre de nuevo. */
+  const cambiarAdministracion = async (id: string | null) => {
+    const { error } = await supabase.rpc('cambiar_administracion', { aid: id });
+    if (error) { alert(error.message); return; }
+    try { localStorage.removeItem('consorcio_activo'); } catch { /* noop */ }
+    location.reload();
+  };
+
   const cerrarSesion = async () => { await supabase.auth.signOut(); setEstadoAuth('anonimo'); };
 
   const consorcio = consorcios.find((c) => c.id === consorcioId) || null;
 
   return (
-    <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario: setUsuarioState, email, rol, superadmin, administracionId, elegirContrasena, setElegirContrasena, estadoAuth, cerrarSesion }}>
+    <Ctx.Provider value={{ consorcios, consorcio, setConsorcioId, reloadConsorcios, usuario, setUsuario: setUsuarioState, email, rol, superadmin, administracionId, verTodo, administraciones, cambiarAdministracion, elegirContrasena, setElegirContrasena, estadoAuth, cerrarSesion }}>
       {children}
     </Ctx.Provider>
   );

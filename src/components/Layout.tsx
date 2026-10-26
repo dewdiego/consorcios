@@ -90,7 +90,7 @@ export const PAGES_POR_CONSORCIO = new Set<PageKey>(
 );
 
 export function Layout({ page, onNavigate, children }: { page: PageKey; onNavigate: (p: PageKey) => void; children: ReactNode }) {
-  const { consorcios, consorcio, setConsorcioId, usuario, cerrarSesion } = useApp();
+  const { consorcios, consorcio, setConsorcioId, usuario, cerrarSesion, superadmin, administraciones, administracionId, verTodo, cambiarAdministracion } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>(() => NAV.filter((e) => e.children?.some((c) => c.key === page)).map((e) => e.label));
 
@@ -166,6 +166,13 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
             <button onClick={() => go('notificaciones')} className="p-2 rounded-full hover:bg-white/15" title="Notificaciones">
               <Bell size={18} />
             </button>
+            {superadmin && (
+              <select value={verTodo ? '' : administracionId || ''} onChange={(e) => cambiarAdministracion(e.target.value || null)} title="Trabajar como administración"
+                className="text-xs rounded-full bg-white/15 hover:bg-white/25 text-white border-0 px-2.5 py-1.5 max-w-[180px] focus:outline-none [&>option]:text-slate-800">
+                <option value="">★ Todas las administraciones</option>
+                {administraciones.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              </select>
+            )}
             <button onClick={() => go('config')} className="p-2 rounded-full hover:bg-white/15" title="Configuración">
               <Settings size={18} />
             </button>
