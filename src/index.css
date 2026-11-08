@@ -1,3 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Nunca scroll horizontal de página en el celular: lo ancho (tablas) scrollea dentro de su tarjeta */
+html, body, #root { max-width: 100vw; overflow-x: hidden; }
