@@ -9,3 +9,7 @@ ALTER TABLE consorcios ADD COLUMN IF NOT EXISTS url_comprobantes text;          
 ALTER TABLE consorcios ADD COLUMN IF NOT EXISTS mostrar_facturas_portal boolean NOT NULL DEFAULT true;
 
 ALTER TABLE gastos ADD COLUMN IF NOT EXISTS archivo_path text;                 -- factura escaneada (storage: facturas/{consorcio}/...)
+
+-- Extracto bancario adjunto a la liquidación (botón "Adjuntar extracto") y nombre visible del período
+ALTER TABLE liquidaciones ADD COLUMN IF NOT EXISTS extracto_path text;
+ALTER TABLE liquidaciones ADD COLUMN IF NOT EXISTS nombre text;

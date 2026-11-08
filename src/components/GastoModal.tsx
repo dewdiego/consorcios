@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Calendar, Clock, HelpCircle, Plus, ShoppingCart, StickyNote, Truck, X } from 'lucide-react';
-import { supabase, type Proveedor, type Rubro } from '@/lib/supabase';
+import { supabase, type Gasto, type Proveedor, type Rubro } from '@/lib/supabase';
 import { Button } from '@/components/ui';
 import { fmtMoney, hoyISO, periodoActual, round2 } from '@/lib/engine';
 
@@ -17,6 +17,8 @@ type Props = {
   consorcioId: string;
   liquidacionId: string | null; // null = queda en Gastos pendientes
   onSaved: () => void;
+  gasto?: Gasto | null;         // si viene, edita ese gasto en vez de crear uno
+  rubroInicial?: string | null; // rubro preseleccionado (botón "+ Agregar" de un rubro)
 };
 
 const vacio = () => ({
@@ -48,7 +50,7 @@ function ConPrefijo({ prefijo, children }: { prefijo: ReactNode; children: React
   );
 }
 
-export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved }: Props) {
+export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved, gasto, rubroInicial }: Props) {
   const [tab, setTab] = useState<'gasto' | 'notas'>('gasto');
   const [form, setForm] = useState(vacio());
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -69,9 +71,17 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
 
   useEffect(() => {
     if (!open) return;
-    setForm(vacio()); setTab('gasto'); setError(''); setNuevoProv(null);
+    setTab('gasto'); setError(''); setNuevoProv(null); setArchivo(null);
+    if (gasto) {
+      setForm({
+        proveedor_id: gasto.proveedor_id || '', rubro_id: gasto.rubro_id || '', descripcion: gasto.descripcion, periodo_facturado: gasto.periodo_facturado || periodoActual(),
+        fecha: gasto.fecha, tipo_comprobante: gasto.tipo_comprobante || 'Factura A', comprobante: gasto.comprobante || '', recurrente: !!gasto.recurrente, extraordinario: !!gasto.extraordinario,
+        monto_a: gasto.monto_a ? String(gasto.monto_a) : '', monto_b: gasto.monto_b ? String(gasto.monto_b) : '', monto_c: gasto.monto_c ? String(gasto.monto_c) : '', monto_d: gasto.monto_d ? String(gasto.monto_d) : '',
+        notas: gasto.notas || '',
+      });
+    } else setForm({ ...vacio(), rubro_id: rubroInicial || '' });
     cargarListas();
-  }, [open]);
+  }, [open, gasto?.id, rubroInicial]);
 
   if (!open) return null;
 
@@ -103,16 +113,17 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
       const { error: upErr } = await supabase.storage.from('archivos').upload(archivo_path, archivo);
       if (upErr) { setSaving(false); setError(`No se pudo subir la factura: ${upErr.message}`); return; }
     }
-    const { error: err } = await supabase.from('gastos').insert({
-      archivo_path,
-      consorcio_id: consorcioId, liquidacion_id: liquidacionId,
+    const payload = {
+      ...(archivo_path ? { archivo_path } : {}),
+      consorcio_id: consorcioId, liquidacion_id: gasto ? gasto.liquidacion_id : liquidacionId,
       proveedor_id: form.proveedor_id || null, rubro_id: form.rubro_id || null,
       descripcion, monto: total, monto_a: a, monto_b: b, monto_c: c, monto_d: d,
       categoria: a > 0 ? 'A' : b > 0 ? 'B' : c > 0 ? 'C' : 'D',
       fecha: form.fecha, periodo_facturado: form.periodo_facturado || null,
       tipo_comprobante: form.tipo_comprobante, comprobante: form.comprobante || null,
       recurrente: form.recurrente, extraordinario: form.extraordinario, notas: form.notas || null,
-    });
+    };
+    const { error: err } = gasto ? await supabase.from('gastos').update(payload).eq('id', gasto.id) : await supabase.from('gastos').insert(payload);
     setSaving(false);
     if (err) { setError(err.message); return; }
     onSaved();
@@ -131,7 +142,7 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
       <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4">
-          <h3 className="text-lg font-semibold text-[#1e2a4a]">Datos del gasto</h3>
+          <h3 className="text-lg font-semibold text-[#1e2a4a]">{gasto ? 'Editar gasto' : 'Datos del gasto'}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={18} /></button>
         </div>
 

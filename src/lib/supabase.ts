@@ -74,7 +74,7 @@ export type Liquidacion = {
   recargo_2do_venc_pct: number; interes_mora_pct: number;
   total_gastos: number; total_distribuido: number;
   cerrada_por: string | null; cerrada_at: string | null; enviada_at: string | null;
-  pdf_path: string | null;
+  pdf_path: string | null; extracto_path: string | null; nombre: string | null;
   notas: string | null; created_at: string;
   consorcios?: Consorcio;
 };

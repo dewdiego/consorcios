@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Copy, FileBarChart, FilePlus2, FileText, FileUp, Lock, Plus, Receipt, RefreshCw, Send, Settings, Trash2, Unlock, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, FileBarChart, FilePlus2, FileText, FileUp, Lock, MoreHorizontal, Paperclip, Pencil, Plus, Receipt, RefreshCw, Send, Settings, Trash2, Unlock, Users } from 'lucide-react';
 import { supabase, type Cupon, type Gasto, type Liquidacion, type Pago, type Proveedor, type Rubro } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
@@ -31,6 +31,42 @@ export function Liquidaciones() {
   const [configModal, setConfigModal] = useState(false);
   const [creando, setCreando] = useState(false);
   const { reloadConsorcios } = useApp();
+  const [editar, setEditar] = useState<Liquidacion | null>(null);
+  const [editForm, setEditForm] = useState({ nombre: '', fecha_vencimiento_1: '', fecha_vencimiento_2: '', notas: '' });
+  const [eliminar, setEliminar] = useState<Liquidacion | null>(null);
+  const [menuMas, setMenuMas] = useState<string | null>(null);
+  const [totalesGastos, setTotalesGastos] = useState<Record<string, number>>({});
+
+  const guardarEdicion = async () => {
+    if (!editar) return;
+    const { error } = await supabase.from('liquidaciones').update({
+      nombre: editForm.nombre.trim() || null, fecha_vencimiento_1: editForm.fecha_vencimiento_1 || null, fecha_vencimiento_2: editForm.fecha_vencimiento_2 || null, notas: editForm.notas || null,
+    }).eq('id', editar.id);
+    if (error) { setMsg(error.message); return; }
+    setEditar(null); load();
+  };
+
+  /** Eliminar expensa: los gastos vuelven a "pendientes" del edificio; se borran cupones. Sólo si no tiene pagos. */
+  const eliminarLiq = async () => {
+    if (!eliminar) return;
+    const { count } = await supabase.from('pagos').select('id', { count: 'exact', head: true }).in('cupon_id', (await supabase.from('cupones').select('id').eq('liquidacion_id', eliminar.id)).data?.map((c) => c.id) || ['00000000-0000-0000-0000-000000000000']);
+    if (count) { setMsg('No se puede eliminar: tiene cobranzas registradas. Reabrila y corregila, o eliminá primero los pagos.'); setEliminar(null); return; }
+    await supabase.from('gastos').update({ liquidacion_id: null }).eq('liquidacion_id', eliminar.id);
+    await supabase.from('cupones').delete().eq('liquidacion_id', eliminar.id);
+    await supabase.from('cola_envios').delete().eq('liquidacion_id', eliminar.id);
+    const { error } = await supabase.from('liquidaciones').delete().eq('id', eliminar.id);
+    if (error) { setMsg(error.message); return; }
+    setMsg(`Liquidación ${periodoLabel(eliminar.periodo)} eliminada. Sus gastos quedaron en Gastos pendientes.`);
+    setEliminar(null); load();
+  };
+
+  const adjuntarExtracto = async (l: Liquidacion, f: File) => {
+    const path = `extractos/${l.consorcio_id}/${l.periodo}_${Date.now()}_${f.name.replace(/[^\w.\-]/g, '_')}`;
+    const { error } = await supabase.storage.from('archivos').upload(path, f);
+    if (error) { setMsg(`No se pudo subir el extracto: ${error.message}`); return; }
+    await supabase.from('liquidaciones').update({ extracto_path: path }).eq('id', l.id);
+    setMsg('Extracto adjuntado.'); load();
+  };
 
   const load = async () => {
     if (!consorcio) return;
@@ -46,6 +82,11 @@ export function Liquidaciones() {
       map[p.cupones.liquidacion_id] = (map[p.cupones.liquidacion_id] || 0) + Number(p.monto);
     }
     setCobradoPorLiq(map);
+    // Gastos cargados por liquidación (las abiertas todavía no tienen total_gastos calculado)
+    const { data: gs } = await supabase.from('gastos').select('liquidacion_id, monto').eq('consorcio_id', consorcio.id).not('liquidacion_id', 'is', null);
+    const tg: Record<string, number> = {};
+    for (const g of (gs || []) as { liquidacion_id: string; monto: number }[]) tg[g.liquidacion_id] = (tg[g.liquidacion_id] || 0) + Number(g.monto);
+    setTotalesGastos(tg);
     setLoading(false);
   };
   useEffect(() => { setDetalleId(null); load(); }, [consorcio?.id]);
@@ -134,35 +175,83 @@ export function Liquidaciones() {
             {[anterior, actual].filter(Boolean).map((l) => {
               const cobrado = cobradoPorLiq[l!.id] || 0;
               const pct = l!.total_distribuido > 0 ? (cobrado / Number(l!.total_distribuido)) * 100 : 0;
+              const abierta = l!.estado === 'abierta';
+              const btn = 'inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-teal-600 px-1.5 py-1';
               return (
-                <Card key={l!.id} className="p-5">
+                <Card key={l!.id} className="p-5 relative">
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-teal-600 font-semibold">{periodoLabel(l!.periodo)}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">Recaudado</p>
-                      <p className="text-2xl font-bold text-slate-800">{fmtMoney(cobrado)}</p>
-                      <div className="mt-1"><Badge color={estadoLiq[l!.estado].color}>{estadoLiq[l!.estado].label}</Badge></div>
+                      <p className="text-teal-600 font-semibold">{l!.nombre || periodoLabel(l!.periodo)}</p>
+                      {abierta ? <>
+                        <p className="text-xs text-slate-400 mt-0.5">Gastos</p>
+                        <p className="text-2xl font-bold text-slate-800">{fmtMoney(totalesGastos[l!.id] || 0)}</p>
+                        <button onClick={() => setDetalleId(l!.id)} className="mt-1 text-xs font-semibold text-teal-700 bg-teal-50 rounded-full px-3 py-1">Imputación de gastos</button>
+                      </> : <>
+                        <p className="text-xs text-slate-400 mt-0.5">Recaudado</p>
+                        <p className="text-2xl font-bold text-slate-800">{fmtMoney(cobrado)}</p>
+                        <button onClick={() => { setDetalleId(l!.id); }} className="mt-1 text-xs font-semibold text-teal-700 bg-teal-50 rounded-full px-3 py-1">Registro de cobranza</button>
+                      </>}
                       {l!.cerrada_por && <p className="text-[11px] text-slate-400 mt-2">Cerrada por {l!.cerrada_por} el {fmtDate(l!.cerrada_at?.slice(0, 10))}</p>}
                       {l!.enviada_at && <p className="text-[11px] text-slate-400">Enviada a todos el {fmtDate(l!.enviada_at.slice(0, 10))}</p>}
                     </div>
-                    <div className="relative w-20 h-20 rounded-full shrink-0" style={{ background: `conic-gradient(#14b8a6 ${Math.min(100, pct) * 3.6}deg, #e2e8f0 0deg)` }}>
-                      <div className="absolute inset-1.5 bg-white rounded-full flex flex-col items-center justify-center">
-                        <span className="text-sm font-bold text-slate-700">{Math.round(pct)}%</span>
-                        <span className="text-[9px] text-slate-400">Cobranza</span>
+                    {abierta ? (
+                      <div className="text-right text-xs text-slate-500 shrink-0">
+                        <p>1er vencimiento</p><p className="font-semibold text-slate-700 text-sm">{fmtDate(l!.fecha_vencimiento_1)}</p>
+                        <p className="mt-1">2do vencimiento</p><p className="font-semibold text-slate-700 text-sm">{fmtDate(l!.fecha_vencimiento_2)}</p>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="relative w-20 h-20 rounded-full shrink-0" style={{ background: `conic-gradient(#14b8a6 ${Math.min(100, pct) * 3.6}deg, #e2e8f0 0deg)` }}>
+                        <div className="absolute inset-1.5 bg-white rounded-full flex flex-col items-center justify-center">
+                          <span className="text-sm font-bold text-slate-700">{Math.round(pct)}%</span>
+                          <span className="text-[9px] text-slate-400">Cobranza</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-100 flex-wrap">
-                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><FileText size={13} /> Resumen</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><Receipt size={13} /> Cupones</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><FileBarChart size={13} /> Ver gastos</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)} title="Unidades con deuda vigente"><Users size={13} /> Ver ajustes</Button>
-                    {l!.estado !== 'abierta' && <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><Send size={13} /> Enviar</Button>}
+                  <div className="flex gap-1 mt-4 pt-3 border-t border-slate-100 flex-wrap items-center">
+                    {abierta ? <>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><RefreshCw size={13} /> Simular</button>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)} title="Unidades con deuda"><Users size={13} /> Ajustes</button>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><Lock size={13} /> Cerrar</button>
+                      <button className={btn} onClick={() => { setEditForm({ nombre: l!.nombre || '', fecha_vencimiento_1: l!.fecha_vencimiento_1 || '', fecha_vencimiento_2: l!.fecha_vencimiento_2 || '', notas: l!.notas || '' }); setEditar(l!); }}><Pencil size={13} /> Editar</button>
+                    </> : <>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><FileText size={13} /> Resumen</button>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><Receipt size={13} /> Cupones</button>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><Send size={13} /> Enviar</button>
+                      <button className={btn} onClick={() => setDetalleId(l!.id)}><Unlock size={13} /> Reabrir</button>
+                    </>}
+                    <div className="relative">
+                      <button className={btn} onClick={() => setMenuMas(menuMas === l!.id ? null : l!.id)}><MoreHorizontal size={13} /> Más</button>
+                      {menuMas === l!.id && (
+                        <div className="absolute right-0 top-7 z-10 bg-white border border-slate-200 rounded-lg shadow-lg py-1 w-56 text-sm" onMouseLeave={() => setMenuMas(null)}>
+                          {!abierta && <button className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => setDetalleId(l!.id)}><FileBarChart size={13} className="inline mr-2" />Ver gastos</button>}
+                          {!abierta && <button className="w-full text-left px-3 py-2 hover:bg-slate-50" onClick={() => setDetalleId(l!.id)}><Users size={13} className="inline mr-2" />Ver ajustes</button>}
+                          <label className="block px-3 py-2 hover:bg-slate-50 cursor-pointer"><Paperclip size={13} className="inline mr-2" />{l!.extracto_path ? 'Reemplazar extracto' : 'Adjuntar extracto'}<input type="file" className="hidden" accept="application/pdf,image/*,.csv,.xlsx" onChange={(e) => { const f = e.target.files?.[0]; setMenuMas(null); if (f) adjuntarExtracto(l!, f); }} /></label>
+                          {l!.extracto_path && <a className="block px-3 py-2 hover:bg-slate-50" href={supabase.storage.from('archivos').getPublicUrl(l!.extracto_path).data.publicUrl} target="_blank" rel="noopener"><FileText size={13} className="inline mr-2" />Ver extracto</a>}
+                          <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600" onClick={() => { setMenuMas(null); setEliminar(l!); }}><Trash2 size={13} className="inline mr-2" />Eliminar expensa</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </Card>
               );
             })}
           </div>
+
+          <Modal open={!!editar} onClose={() => setEditar(null)} title={`Datos de la liquidación · ${editar ? periodoLabel(editar.periodo) : ''}`}>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Período informado" value={editar?.periodo || ''} onChange={() => {}} />
+              <Input label="Nombre del período" value={editForm.nombre} onChange={(v) => setEditForm({ ...editForm, nombre: v })} placeholder={editar ? periodoLabel(editar.periodo) : ''} />
+              <Input label="Primer vencimiento" type="date" value={editForm.fecha_vencimiento_1} onChange={(v) => setEditForm({ ...editForm, fecha_vencimiento_1: v })} />
+              <Input label="Segundo vencimiento" type="date" value={editForm.fecha_vencimiento_2} onChange={(v) => setEditForm({ ...editForm, fecha_vencimiento_2: v })} />
+              <div className="col-span-2"><Textarea label="Notas visibles en esta expensa (normas de convivencia, avisos)" value={editForm.notas} onChange={(v) => setEditForm({ ...editForm, notas: v })} rows={6} /></div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">Las notas salen en el mail de expensas y en el portal del vecino. Si el período ya está cerrado, cambiar los vencimientos no recalcula los cupones: reabrilo para eso.</p>
+            <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={() => setEditar(null)}>Cancelar</Button><Button onClick={guardarEdicion}>Guardar</Button></div>
+          </Modal>
+          <ConfirmDialog open={!!eliminar} title="Eliminar expensa" peligro confirmLabel="Eliminar"
+            message={`Se elimina la expensa de ${eliminar ? periodoLabel(eliminar.periodo) : ''}. Los gastos quedan asignados al edificio como pendientes (no se pierden) y se borran los cupones. ¿Continuar?`}
+            onCancel={() => setEliminar(null)} onConfirm={eliminarLiq} />
 
           <Card>
             <Table headers={['Período', 'Vencimiento', 'Estado', 'Gastos', 'Distribuido', 'Cobrado', 'Cumplimiento', '']}>
@@ -171,10 +260,10 @@ export function Liquidaciones() {
                 const pct = l.total_distribuido > 0 ? Math.min(100, (cobrado / Number(l.total_distribuido)) * 100) : 0;
                 return (
                   <tr key={l.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setDetalleId(l.id)}>
-                    <Td className="font-medium">{l.periodo}</Td>
+                    <Td className="font-medium">{l.periodo}{l.nombre && <span className="block text-xs text-slate-400 font-normal">{l.nombre}</span>}</Td>
                     <Td>{fmtDate(l.fecha_vencimiento_1)}</Td>
                     <Td><Badge color={estadoLiq[l.estado].color}>{estadoLiq[l.estado].label}</Badge></Td>
-                    <Td>{fmtMoney(Number(l.total_gastos))}</Td>
+                    <Td>{fmtMoney(Number(l.total_gastos) || totalesGastos[l.id] || 0)}</Td>
                     <Td>{fmtMoney(Number(l.total_distribuido))}</Td>
                     <Td>{fmtMoney(cobrado)}</Td>
                     <Td>
@@ -214,6 +303,9 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
 
   // modales
   const [gastoModal, setGastoModal] = useState(false);
+  const [gastoEdit, setGastoEdit] = useState<Gasto | null>(null);
+  const [rubroNuevo, setRubroNuevo] = useState<string | null>(null);
+  const [filtroCob, setFiltroCob] = useState<'todos' | 'pendientes' | 'pagados'>('todos');
   const [gastoForm, setGastoForm] = useState({ descripcion: '', proveedor_id: '', rubro_id: '', categoria: 'A', monto: '', fecha: hoyISO(), comprobante: '' });
   const [pagoModal, setPagoModal] = useState<Cupon | null>(null);
   const [pagoForm, setPagoForm] = useState({ fecha: hoyISO(), monto: '', metodo: 'transferencia', comprobante: '', observaciones: '' });
@@ -430,7 +522,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
       {loading ? <Spinner /> : tab === 'gastos' ? (
         <Card>
           <div className="flex flex-wrap items-center gap-2 px-4 pt-4">
-            {abierta && <Button size="sm" onClick={() => setGastoModal(true)}><Plus size={14} /> Agregar gasto</Button>}
+            {abierta && <Button size="sm" onClick={() => { setGastoEdit(null); setRubroNuevo(null); setGastoModal(true); }}><Plus size={14} /> Agregar gasto</Button>}
             {abierta && <Button size="sm" variant="secondary" onClick={traerPendientes} disabled={busy}>Traer gastos pendientes ({pendientes.length})</Button>}
             {abierta && <Button size="sm" variant="secondary" onClick={generarProvisiones} disabled={busy}>Generar provisiones y honorarios</Button>}
             {!abierta && <p className="text-xs text-slate-400 py-1">Período cerrado: para modificar gastos hay que reabrir.</p>}
@@ -439,32 +531,66 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
               {CATEGORIAS.map((c) => <span key={c.key}><b>{c.key}:</b> {fmtMoney(totalesPorCat[c.key])}</span>)}
             </div>
           </div>
-          <Table headers={['Fecha', 'Descripción', 'Rubro', 'Proveedor', 'Cat.', 'Comprobante', 'Monto', '']}>
-            {gastos.map((g) => (
-              <tr key={g.id} className="hover:bg-slate-50">
-                <Td>{fmtDate(g.fecha)}</Td>
-                <Td className="font-medium max-w-xs truncate">{g.descripcion}</Td>
-                <Td className="text-slate-500">{g.rubros?.nombre || '—'}</Td>
-                <Td className="text-slate-500">{g.proveedores?.nombre || '—'}</Td>
-                <Td><Badge color={g.categoria === 'A' ? 'teal' : g.categoria === 'B' ? 'blue' : g.categoria === 'C' ? 'purple' : 'orange'}>{g.categoria}</Badge></Td>
-                <Td className="text-slate-400 text-xs">{g.comprobante || '—'}
-                  {g.archivo_path ? <a href={supabase.storage.from('archivos').getPublicUrl(g.archivo_path).data.publicUrl} target="_blank" rel="noopener" className="block text-teal-600 font-medium">ver factura</a>
-                    : <label className="block text-teal-600 cursor-pointer hover:underline">adjuntar factura<input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) adjuntarFactura(g, f); }} /></label>}
-                </Td>
-                <Td className="font-semibold text-right">{fmtMoney(Number(g.monto))}</Td>
-                <Td>{abierta && <button onClick={() => quitarGasto(g)} title="Quitar del período" className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>}</Td>
-              </tr>
-            ))}
-            {gastos.length === 0 && <tr><Td colSpan={8} className="text-center text-slate-400 py-10">Sin gastos cargados en este período.</Td></tr>}
-          </Table>
+          {/* Imputación de gastos, agrupada por rubro como en Octavo */}
+          <div className="px-4 pb-4 mt-3 space-y-3">
+            {(() => {
+              const total = gastos.reduce((a, g) => a + Number(g.monto), 0);
+              const grupos = rubros.map((r) => ({ r, items: gastos.filter((g) => g.rubro_id === r.id) }));
+              const sinRubro = gastos.filter((g) => !g.rubro_id);
+              const filas = [...grupos, ...(sinRubro.length ? [{ r: { id: '', nombre: 'Sin rubro', orden: 999 } as Rubro, items: sinRubro }] : [])];
+              if (filas.every((f) => f.items.length === 0)) return <p className="text-center text-slate-400 py-10">Sin gastos cargados en este período.{abierta ? ' Agregalos con "+ Agregar" en cada rubro, traé los pendientes o copiá la última expensa.' : ''}</p>;
+              return filas.map(({ r, items }, idx) => {
+                const sub = items.reduce((a, g) => a + Number(g.monto), 0);
+                if (!items.length && !abierta) return null;
+                return (
+                  <div key={r.id || 'sin'} className="rounded-lg border border-slate-200">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-t-lg">
+                      <span className="text-xs text-slate-400 w-5">{idx + 1}</span>
+                      <span className="font-semibold text-slate-700 text-sm uppercase">{r.nombre}</span>
+                      {sub > 0 && <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 rounded px-1.5 py-0.5">{total ? Math.round(sub / total * 100) : 0}%</span>}
+                      <div className="flex-1" />
+                      {abierta && r.id && <button onClick={() => { setGastoEdit(null); setRubroNuevo(r.id); setGastoModal(true); }} className="text-xs font-semibold text-teal-600 border border-teal-200 rounded px-2 py-1 hover:bg-teal-50">+ Agregar</button>}
+                    </div>
+                    {items.length === 0 ? <p className="text-xs text-slate-400 px-4 py-2">Sin movimientos</p> : items.map((g) => (
+                      <div key={g.id} className="flex items-start gap-3 px-4 py-2.5 border-t border-slate-100 hover:bg-slate-50/60">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{g.descripcion}{g.proveedores?.nombre && <span className="text-slate-400 font-normal"> · {g.proveedores.nombre}</span>}{g.comprobante && <span className="text-slate-400 font-normal"> · {g.tipo_comprobante} {g.comprobante}</span>}{g.periodo_facturado && <span className="text-slate-400 font-normal"> · {g.periodo_facturado}</span>}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{fmtDate(g.fecha)} · {g.pagado ? `Pagado ${g.fecha_pago ? fmtDate(g.fecha_pago) : ''}` : 'Pendiente de pago'}{g.recurrente ? ' · Recurrente' : ''}{g.extraordinario ? ' · Extraordinario' : ''}
+                            {g.archivo_path ? <a href={supabase.storage.from('archivos').getPublicUrl(g.archivo_path).data.publicUrl} target="_blank" rel="noopener" className="text-teal-600 font-medium ml-2">📄 factura</a>
+                              : <label className="text-teal-600 cursor-pointer hover:underline ml-2">adjuntar factura<input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) adjuntarFactura(g, f); }} /></label>}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-slate-800">{fmtMoney(Number(g.monto))}</p>
+                          <p className="text-[10px] text-slate-400">{['A', 'B', 'C', 'D'].filter((k) => Number(g[`monto_${k.toLowerCase()}` as keyof Gasto]) > 0).map((k) => `${k} ${fmtMoney(Number(g[`monto_${k.toLowerCase()}` as keyof Gasto]))}`).join(' · ') || g.categoria}</p>
+                        </div>
+                        {abierta && <div className="flex gap-0.5 shrink-0">
+                          <button onClick={() => { setGastoEdit(g); setRubroNuevo(null); setGastoModal(true); }} title="Editar" className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
+                          <button onClick={() => quitarGasto(g)} title="Quitar del período" className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>
+                        </div>}
+                      </div>
+                    ))}
+                    {items.length > 0 && <div className="flex justify-end px-4 py-1.5 border-t border-slate-100 text-xs text-slate-500">Total categoría: <b className="ml-1 text-slate-700">{fmtMoney(sub)}</b></div>}
+                  </div>
+                );
+              });
+            })()}
+          </div>
         </Card>
       ) : tab === 'cupones' ? (
         <Card>
+          {cupones.length > 0 && <div className="flex flex-wrap items-center gap-2 px-4 pt-4 text-xs">
+            <span className="text-slate-500 font-medium">Registro de cobranza:</span>
+            {([['todos', 'Mostrar todos'], ['pendientes', 'Solo pendientes'], ['pagados', 'Solo pagos']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setFiltroCob(k)} className={`rounded-full px-3 py-1 border ${filtroCob === k ? 'bg-[#1e2a4a] text-white border-[#1e2a4a]' : 'bg-white text-slate-600 border-slate-200'}`}>{l}</button>
+            ))}
+            <span className="ml-auto text-slate-500">{cupones.filter((c) => c.estado === 'pagado').length} pagados · {cupones.filter((c) => c.estado === 'parcial').length} parciales · {cupones.filter((c) => c.estado === 'pendiente').length} pendientes</span>
+          </div>}
           {cupones.length === 0 ? (
             <EmptyState icon={<Receipt size={28} />} title="Todavía no se generaron cupones" subtitle='Cargá los gastos y usá "Generar cupones" o "Cerrar período".' />
           ) : (
             <Table headers={['UF', 'Depto / Propietario', 'A', 'B', 'C', 'D', 'Saldo ant.', 'Intereses', 'Total 1º venc.', 'Total 2º venc.', 'Estado', '']}>
-              {cupones.map((c) => (
+              {cupones.filter((c) => filtroCob === 'todos' || (filtroCob === 'pagados' ? c.estado === 'pagado' : c.estado !== 'pagado')).map((c) => (
                 <tr key={c.id} className="hover:bg-slate-50">
                   <Td className="font-mono text-xs">{String(c.unidades?.uf ?? '').padStart(3, '0')}</Td>
                   <Td><span className="font-medium">{c.unidades?.depto}</span><span className="text-slate-400 text-xs block">{c.unidades?.propietario}</span></Td>
@@ -509,8 +635,8 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
       )}
 
       {/* Modal nuevo gasto */}
-      <GastoModal open={gastoModal} onClose={() => setGastoModal(false)}
-        consorcioId={liq.consorcio_id} liquidacionId={liq.id} onSaved={loadAll} />
+      <GastoModal open={gastoModal} onClose={() => { setGastoModal(false); setGastoEdit(null); }}
+        consorcioId={liq.consorcio_id} liquidacionId={liq.id} onSaved={loadAll} gasto={gastoEdit} rubroInicial={rubroNuevo} />
 
       {/* Modal cobrar cupón */}
       <Modal open={!!pagoModal} onClose={() => setPagoModal(null)} title={`Cobrar UF ${pagoModal?.unidades?.uf} · ${pagoModal?.unidades?.depto}`}>
