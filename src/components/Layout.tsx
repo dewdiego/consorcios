@@ -102,7 +102,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
   const esPorConsorcio = PAGES_POR_CONSORCIO.has(page);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex max-w-[100vw] overflow-x-hidden">
       {/* Sidebar */}
       {sidebarOpen && <div className="fixed inset-0 bg-slate-900/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       <aside className={`fixed lg:sticky top-0 h-screen w-64 bg-[#1e2a4a] text-slate-200 flex flex-col z-40 transition-transform overflow-y-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
@@ -149,38 +149,38 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Topbar */}
         <header className="sticky top-0 z-20 bg-teal-500 text-white shadow">
-          <div className="flex items-center gap-3 px-4 py-2.5">
-            <button className="lg:hidden p-1.5 rounded hover:bg-white/15" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
-            {/* Selector de consorcio activo */}
-            <div className="flex items-center gap-2">
-              <Building2 size={16} className="opacity-80" />
+          <div className="flex items-center gap-1.5 sm:gap-3 px-3 sm:px-4 py-2.5 overflow-hidden">
+            <button className="lg:hidden p-1.5 rounded hover:bg-white/15 shrink-0" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
+            {/* Selector de consorcio activo (se achica en el celular) */}
+            <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-none">
+              <Building2 size={16} className="opacity-80 shrink-0 hidden sm:block" />
               <select
                 value={consorcio?.id || ''}
                 onChange={(e) => setConsorcioId(e.target.value || null)}
-                className="bg-teal-600/60 text-white text-sm rounded-lg px-3 py-1.5 border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 max-w-[260px]">
+                className="bg-teal-600/60 text-white text-sm rounded-lg px-3 py-1.5 border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/40 w-full sm:w-auto sm:max-w-[260px] min-w-0 truncate">
                 <option value="">— Elegir consorcio —</option>
                 {consorcios.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.activo ? '' : ' (inactivo)'}</option>)}
               </select>
             </div>
-            <div className="flex-1" />
-            <button onClick={() => go('notificaciones')} className="p-2 rounded-full hover:bg-white/15" title="Notificaciones">
+            <div className="hidden sm:block flex-1" />
+            <button onClick={() => go('notificaciones')} className="p-2 rounded-full hover:bg-white/15 shrink-0" title="Notificaciones">
               <Bell size={18} />
             </button>
             {superadmin && (
               <select value={verTodo ? '' : administracionId || ''} onChange={(e) => cambiarAdministracion(e.target.value || null)} title="Trabajar como administración"
-                className="text-xs rounded-full bg-white/15 hover:bg-white/25 text-white border-0 px-2.5 py-1.5 max-w-[180px] focus:outline-none [&>option]:text-slate-800">
+                className="text-xs rounded-full bg-white/15 hover:bg-white/25 text-white border-0 px-2.5 py-1.5 max-w-[90px] sm:max-w-[180px] shrink min-w-0 truncate focus:outline-none [&>option]:text-slate-800">
                 <option value="">★ Todas las administraciones</option>
                 {administraciones.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
               </select>
             )}
-            <button onClick={() => go('config')} className="p-2 rounded-full hover:bg-white/15" title="Configuración">
+            <button onClick={() => go('config')} className="p-2 rounded-full hover:bg-white/15 shrink-0 hidden sm:block" title="Configuración">
               <Settings size={18} />
             </button>
-            <button onClick={() => go('usuarios')} className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-sm" title="Usuarios">
+            <button onClick={() => go('usuarios')} className="hidden sm:flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-sm shrink-0" title="Usuarios">
               <span className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center"><Users size={13} /></span>
               <span className="hidden sm:inline max-w-[140px] truncate">{usuario}</span>
             </button>
-            <button onClick={cerrarSesion} className="p-2 rounded-full hover:bg-white/15" title="Cerrar sesión"><LogOut size={18} /></button>
+            <button onClick={cerrarSesion} className="p-2 rounded-full hover:bg-white/15 shrink-0" title="Cerrar sesión"><LogOut size={18} /></button>
           </div>
         </header>
 
@@ -192,7 +192,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
           <span className="text-slate-500 font-medium">{PAGE_TITLES[page]}</span>
         </div>
 
-        <main className="flex-1 px-6 py-4">
+        <main className="flex-1 px-3 sm:px-6 py-4 min-w-0">
           {esPorConsorcio && !consorcio ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <Building2 size={40} className="text-slate-300 mb-3" />
