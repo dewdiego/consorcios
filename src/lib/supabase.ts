@@ -26,7 +26,9 @@ export type Notificacion = {
 export type Consorcio = {
   id: string; nombre: string; direccion: string | null; ciudad: string | null; cuit: string | null;
   telefono: string | null; email: string | null; cantidad_pisos: number; activo: boolean;
-  banco: string | null; cbu: string | null; fecha_asamblea: string | null; fecha_mandato_hasta: string | null;
+  banco: string | null; cbu: string | null; fecha_asamblea: string | null; fecha_mandato_hasta: string | null; administracion_id: string | null;
+  monto_fijo_deudores: number; redondeo: 'ninguno' | 'unidad' | 'decena' | 'centena'; venc_no_habil: 'no_modificar' | 'siguiente_habil' | 'anterior_habil';
+  url_comprobantes: string | null; mostrar_facturas_portal: boolean;
   dia_vencimiento_1: number; dia_vencimiento_2: number;
   recargo_2do_venc_pct: number; interes_mora_mensual_pct: number;
   honorarios_mensuales: number; notas: string | null; created_at: string;
@@ -86,6 +88,7 @@ export type Gasto = {
   orden_pago_id: string | null; created_at: string;
   monto_a: number; monto_b: number; monto_c: number; monto_d: number;
   periodo_facturado: string | null; tipo_comprobante: string; recurrente: boolean; extraordinario: boolean; notas: string | null;
+  archivo_path: string | null;
   proveedores?: Proveedor; rubros?: Rubro; consorcios?: Consorcio;
 };
 

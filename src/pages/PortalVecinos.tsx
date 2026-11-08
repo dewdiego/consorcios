@@ -20,7 +20,7 @@ type PortalInfo = { id: string; consorcio_id: string | null; titulo: string; con
 type Datos = {
   email: string; dispositivos: number;
   administracion: { nombre: string; telefono: string | null; email: string | null; direccion: string | null; horario_atencion: string | null } | null;
-  unidades: { id: string; uf: number; depto: string; consorcio: string; rol: string; nombre: string | null; expensa: { periodo: string; vencimiento_1: string | null; vencimiento_2: string | null; pdf_url: string | null; cupon: { total: number; total_2do_venc: number; saldo_anterior: number; intereses: number; estado: string } | null } | null; pagos: { fecha: string; monto: number; metodo: string }[] }[];
+  unidades: { id: string; uf: number; depto: string; consorcio: string; rol: string; nombre: string | null; expensa: { periodo: string; vencimiento_1: string | null; vencimiento_2: string | null; pdf_url: string | null; cupon: { total: number; total_2do_venc: number; saldo_anterior: number; intereses: number; estado: string } | null; gastos?: { descripcion: string; monto: number; factura_url: string | null }[]; url_comprobantes?: string | null } | null; pagos: { fecha: string; monto: number; metodo: string }[] }[];
   comunicados: { id: string; titulo: string; contenido: string; fecha_publicacion: string; consorcio: string; adjunto_url: string | null }[];
   info: { titulo: string; contenido: string; consorcio: string | null }[];
   telefonos: { nombre: string; categoria: string; telefono: string; notas: string | null; consorcio: string | null }[];
@@ -153,6 +153,8 @@ export function PortalVecinos() {
                           {Number(c.saldo_anterior) !== 0 && <div className="flex justify-between text-xs mt-1"><span className="text-slate-500">Saldo anterior</span><b className={Number(c.saldo_anterior) > 0 ? 'text-red-500' : 'text-emerald-600'}>{fmtMoney(Number(c.saldo_anterior))}</b></div>}
                         </> : <p className="text-slate-500 text-xs">Tu cupón todavía no está disponible.</p>}
                         {e.pdf_url ? <a href={e.pdf_url} target="_blank" rel="noopener" className="block text-center bg-teal-500 text-white rounded-lg py-2 mt-3 font-semibold text-xs">Ver liquidación (PDF)</a> : <p className="text-[11px] text-amber-700 mt-2">Sin PDF adjunto: no ve el botón de la liquidación.</p>}
+                        {e.gastos && e.gastos.length > 0 && <div className="mt-2 text-xs border border-slate-200 rounded-lg py-1.5 text-center text-teal-700 font-semibold">Ver gastos y facturas ({e.gastos.length}) <span className="text-slate-400 font-normal">· {e.gastos.filter((g) => g.factura_url).length} con factura adjunta</span></div>}
+                        {e.url_comprobantes && <div className="mt-1 text-xs border border-slate-200 rounded-lg py-1.5 text-center text-teal-700 font-semibold">📁 Carpeta de comprobantes</div>}
                       </> : <p className="text-slate-500 text-xs mt-2">Todavía no hay expensas publicadas.</p>}
                       {u.pagos.length > 0 && <><div className="text-[10px] uppercase tracking-wide text-slate-400 mt-3 mb-1">Últimos pagos</div>{u.pagos.map((p, i) => <div key={i} className="flex justify-between text-xs py-1 border-t border-slate-100"><span className="text-slate-500">{fmtDate(p.fecha)} · {p.metodo}</span><b>{fmtMoney(Number(p.monto))}</b></div>)}</>}
                     </div>

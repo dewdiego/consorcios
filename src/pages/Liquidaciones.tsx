@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, FileText, FileUp, Lock, Plus, Receipt, RefreshCw, Send, Trash2, Unlock } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, FileBarChart, FilePlus2, FileText, FileUp, Lock, Plus, Receipt, RefreshCw, Send, Settings, Trash2, Unlock, Users } from 'lucide-react';
 import { supabase, type Cupon, type Gasto, type Liquidacion, type Pago, type Proveedor, type Rubro } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
@@ -7,8 +7,9 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GastoModal } from '@/components/GastoModal';
 import { EnvioExpensas } from '@/components/EnvioExpensas';
 import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
+import { ConfigExpensas } from '@/components/ConfigExpensas';
 import {
-  CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
+  ajustarVencimiento, CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
   montoEsperado, notificar, periodoActual, periodoLabel, periodoSiguiente, reabrirLiquidacion, registrarPago, round2,
 } from '@/lib/engine';
 
@@ -26,6 +27,10 @@ export function Liquidaciones() {
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
   const [importar, setImportar] = useState(false);
+  const [nuevaModal, setNuevaModal] = useState(false);
+  const [configModal, setConfigModal] = useState(false);
+  const [creando, setCreando] = useState(false);
+  const { reloadConsorcios } = useApp();
 
   const load = async () => {
     if (!consorcio) return;
@@ -45,14 +50,19 @@ export function Liquidaciones() {
   };
   useEffect(() => { setDetalleId(null); load(); }, [consorcio?.id]);
 
-  const nueva = async () => {
-    if (!consorcio) return;
-    const ultimo = liqs[0]?.periodo;
-    const periodo = ultimo ? periodoSiguiente(ultimo) : periodoActual();
+  /**
+   * Nueva expensa. "Copiar la última": trae los gastos marcados como recurrentes de la última liquidación
+   * (mismos importes, fecha de hoy, sin pagar) para que sólo haya que ajustar. "En blanco": vacía.
+   */
+  const nueva = async (copiar: boolean) => {
+    if (!consorcio || creando) return;
+    setCreando(true); setMsg('');
+    const ultima = liqs[0];
+    const periodo = ultima ? periodoSiguiente(ultima.periodo) : periodoActual();
     const [y, m] = periodo.split('-').map(Number);
     const fv = (dia: number) => {
       const next = new Date(y, m, Math.min(Number(dia) || 10, 28)); // vence el mes siguiente al período liquidado
-      return next.toISOString().slice(0, 10);
+      return ajustarVencimiento(next.toISOString().slice(0, 10), consorcio.venc_no_habil);
     };
     const { data, error } = await supabase.from('liquidaciones').insert({
       consorcio_id: consorcio.id, periodo,
@@ -61,8 +71,21 @@ export function Liquidaciones() {
       recargo_2do_venc_pct: consorcio.recargo_2do_venc_pct,
       interes_mora_pct: consorcio.interes_mora_mensual_pct,
     }).select().single();
-    if (error) { setMsg(error.message); return; }
+    if (error) { setMsg(error.message); setCreando(false); return; }
+    let copiados = 0;
+    if (copiar && ultima) {
+      const { data: rec } = await supabase.from('gastos').select('*').eq('liquidacion_id', ultima.id).eq('recurrente', true);
+      const filas = ((rec || []) as Gasto[]).map((g) => ({
+        consorcio_id: consorcio.id, liquidacion_id: data.id, proveedor_id: g.proveedor_id, rubro_id: g.rubro_id, descripcion: g.descripcion,
+        categoria: g.categoria, monto: g.monto, monto_a: g.monto_a, monto_b: g.monto_b, monto_c: g.monto_c, monto_d: g.monto_d,
+        fecha: hoyISO(), periodo_facturado: periodo, tipo_comprobante: g.tipo_comprobante, comprobante: null, recurrente: true,
+        extraordinario: g.extraordinario, notas: g.notas, pagado: false,
+      }));
+      if (filas.length) { const { error: e2 } = await supabase.from('gastos').insert(filas); if (!e2) copiados = filas.length; }
+    }
+    setNuevaModal(false); setCreando(false);
     await load();
+    if (copiados) setMsg(`Liquidación ${periodoLabel(periodo)} creada con ${copiados} gastos recurrentes copiados. Revisá importes y cargá los comprobantes.`);
     setDetalleId(data.id);
   };
 
@@ -78,11 +101,27 @@ export function Liquidaciones() {
   return (
     <div>
       <PageHeader title={`Expensas · ${consorcio.nombre}`} subtitle="Liquidaciones mensuales"
-        action={<div className="flex gap-2">
+        action={<div className="flex gap-2 flex-wrap">
+          <Button variant="secondary" onClick={() => setConfigModal(true)}><Settings size={15} /> Configuración</Button>
           <Button variant="secondary" onClick={() => setImportar(true)}><FileUp size={15} /> Importar PDF</Button>
-          <Button onClick={nueva}><Plus size={16} /> Nueva liquidación</Button>
+          <Button onClick={() => setNuevaModal(true)}><Plus size={16} /> Nueva expensa</Button>
         </div>} />
-      {msg && <p className="text-sm text-red-500 mb-3">{msg}</p>}
+      {msg && <p className={`text-sm mb-3 ${/creada/.test(msg) ? 'text-emerald-600' : 'text-red-500'}`}>{msg}</p>}
+      <ConfigExpensas open={configModal} onClose={() => setConfigModal(false)} consorcio={consorcio} onGuardado={reloadConsorcios} />
+      <Modal open={nuevaModal} onClose={() => setNuevaModal(false)} title="Nueva liquidación">
+        <p className="text-sm text-slate-500 mb-5">Seleccioná cómo crear la expensa de <b>{periodoLabel(liqs[0] ? periodoSiguiente(liqs[0].periodo) : periodoActual())}</b>:</p>
+        <div className="grid grid-cols-2 gap-4">
+          <button disabled={!liqs[0] || creando} onClick={() => nueva(true)} className="rounded-xl border-2 border-pink-400 text-pink-600 p-5 text-center hover:bg-pink-50 disabled:opacity-40">
+            <Copy size={26} className="mx-auto mb-2" /><div className="font-bold text-sm">COPIAR LA ÚLTIMA</div>
+            <div className="text-xs text-slate-500 mt-2">Trae los gastos marcados como recurrentes (abono de limpieza, ascensores, honorarios…) con sus importes, para ajustar.</div>
+          </button>
+          <button disabled={creando} onClick={() => nueva(false)} className="rounded-xl border-2 border-teal-400 text-teal-600 p-5 text-center hover:bg-teal-50 disabled:opacity-40">
+            <FilePlus2 size={26} className="mx-auto mb-2" /><div className="font-bold text-sm">CREAR EN BLANCO</div>
+            <div className="text-xs text-slate-500 mt-2">Sin gastos. Después podés traer los pendientes y generar las provisiones desde la liquidación.</div>
+          </button>
+        </div>
+        <div className="flex justify-end mt-5"><Button variant="secondary" onClick={() => setNuevaModal(false)}>Cancelar</Button></div>
+      </Modal>
       <ImportarLiquidacion open={importar} onClose={() => setImportar(false)} consorcioId={consorcio.id}
         onImportado={async (_cid, liqId) => { await load(); setDetalleId(liqId); }} />
 
@@ -113,9 +152,12 @@ export function Liquidaciones() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2 mt-4 pt-3 border-t border-slate-100">
+                  <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-100 flex-wrap">
                     <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><FileText size={13} /> Resumen</Button>
                     <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><Receipt size={13} /> Cupones</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><FileBarChart size={13} /> Ver gastos</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)} title="Unidades con deuda vigente"><Users size={13} /> Ver ajustes</Button>
+                    {l!.estado !== 'abierta' && <Button size="sm" variant="secondary" onClick={() => setDetalleId(l!.id)}><Send size={13} /> Enviar</Button>}
                   </div>
                 </Card>
               );
@@ -234,6 +276,14 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
     if (error) throw new Error(error.message);
     setGastoModal(false);
     setGastoForm({ descripcion: '', proveedor_id: '', rubro_id: '', categoria: 'A', monto: '', fecha: hoyISO(), comprobante: '' });
+  });
+
+  const adjuntarFactura = (g: Gasto, f: File) => run(async () => {
+    const path = `facturas/${g.consorcio_id}/${Date.now()}_${f.name.replace(/[^\w.\-]/g, '_')}`;
+    const { error } = await supabase.storage.from('archivos').upload(path, f);
+    if (error) throw new Error(`No se pudo subir la factura: ${error.message}`);
+    await supabase.from('gastos').update({ archivo_path: path }).eq('id', g.id);
+    return 'Factura adjuntada.';
   });
 
   const quitarGasto = (g: Gasto) => run(async () => {
@@ -397,7 +447,10 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
                 <Td className="text-slate-500">{g.rubros?.nombre || '—'}</Td>
                 <Td className="text-slate-500">{g.proveedores?.nombre || '—'}</Td>
                 <Td><Badge color={g.categoria === 'A' ? 'teal' : g.categoria === 'B' ? 'blue' : g.categoria === 'C' ? 'purple' : 'orange'}>{g.categoria}</Badge></Td>
-                <Td className="text-slate-400 text-xs">{g.comprobante || '—'}</Td>
+                <Td className="text-slate-400 text-xs">{g.comprobante || '—'}
+                  {g.archivo_path ? <a href={supabase.storage.from('archivos').getPublicUrl(g.archivo_path).data.publicUrl} target="_blank" rel="noopener" className="block text-teal-600 font-medium">ver factura</a>
+                    : <label className="block text-teal-600 cursor-pointer hover:underline">adjuntar factura<input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) adjuntarFactura(g, f); }} /></label>}
+                </Td>
                 <Td className="font-semibold text-right">{fmtMoney(Number(g.monto))}</Td>
                 <Td>{abierta && <button onClick={() => quitarGasto(g)} title="Quitar del período" className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>}</Td>
               </tr>

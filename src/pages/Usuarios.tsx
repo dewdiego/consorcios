@@ -16,7 +16,7 @@ import { Ayuda } from '@/components/Ayuda';
 type UsuarioFull = Usuario & { administracion_id: string | null; superadmin: boolean; administracion?: { nombre: string } | null };
 
 export function Usuarios() {
-  const { superadmin, administracionId, email: miEmail, rol: miRol } = useApp();
+  const { superadmin, administracionId, email: miEmail, rol: miRol, consorcios } = useApp();
   const [tab, setTab] = useState('usuarios');
   const [items, setItems] = useState<UsuarioFull[]>([]);
   const [admins, setAdmins] = useState<(Administracion & { activa: boolean })[]>([]);
@@ -139,11 +139,12 @@ export function Usuarios() {
             <p>Cada administradora es un espacio separado: sus consorcios, proveedores, comunicados y usuarios. Para dar de alta una nueva: creala acá y después invitá a su primer usuario con rol Administrador eligiendo esa administración; esa persona ya puede cargar consorcios e invitar a su gente.</p>
           </Ayuda>
           <Card>
-            <Table headers={['Nombre', 'CUIT', 'Mail', 'Teléfono', 'RPA', 'Usuarios', 'Estado', '']}>
+            <Table headers={['Nombre', 'CUIT', 'Mail', 'Teléfono', 'RPA', 'Usuarios', 'Consorcios', 'Estado', '']}>
               {admins.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50">
                   <Td className="font-medium">{a.nombre}</Td><Td className="font-mono text-xs">{a.cuit || '—'}</Td><Td className="text-slate-500">{a.email || '—'}</Td><Td>{a.telefono || '—'}</Td><Td>{a.rpa || '—'}</Td>
-                  <Td>{items.filter((u) => u.administracion_id === a.id).length}</Td>
+                  <Td>{items.filter((u) => u.administracion_id === a.id).map((u) => u.nombre).join(', ') || '—'}</Td>
+                  <Td className="text-slate-500 max-w-xs">{(() => { const cs = consorcios.filter((c) => c.administracion_id === a.id); return cs.length ? `${cs.length}: ${cs.map((c) => c.nombre).join(', ')}` : '—'; })()}</Td>
                   <Td><Badge color={a.activa ? 'green' : 'slate'}>{a.activa ? 'activa' : 'inactiva'}</Badge></Td>
                   <Td><button onClick={() => { setAdmEdit(a); setAdmForm({ nombre: a.nombre, cuit: a.cuit || '', email: a.email || '', telefono: a.telefono || '', direccion: a.direccion || '', rpa: a.rpa || '', activa: a.activa }); setAdmModal(true); }} className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button></Td>
                 </tr>

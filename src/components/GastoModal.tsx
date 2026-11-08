@@ -56,6 +56,7 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
   const [nuevoProv, setNuevoProv] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [archivo, setArchivo] = useState<File | null>(null);
 
   const cargarListas = async () => {
     const [p, r] = await Promise.all([
@@ -95,7 +96,15 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
     if (!descripcion) { setError('Completá proveedor, categoría o descripción.'); return; }
     const a = num(form.monto_a), b = num(form.monto_b), c = num(form.monto_c), d = num(form.monto_d);
     setSaving(true); setError('');
+    // Factura adjunta: va al storage y el vecino la ve desde el portal
+    let archivo_path: string | null = null;
+    if (archivo) {
+      archivo_path = `facturas/${consorcioId}/${Date.now()}_${archivo.name.replace(/[^\w.\-]/g, '_')}`;
+      const { error: upErr } = await supabase.storage.from('archivos').upload(archivo_path, archivo);
+      if (upErr) { setSaving(false); setError(`No se pudo subir la factura: ${upErr.message}`); return; }
+    }
     const { error: err } = await supabase.from('gastos').insert({
+      archivo_path,
       consorcio_id: consorcioId, liquidacion_id: liquidacionId,
       proveedor_id: form.proveedor_id || null, rubro_id: form.rubro_id || null,
       descripcion, monto: total, monto_a: a, monto_b: b, monto_c: c, monto_d: d,
@@ -201,6 +210,13 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved 
                 </Campo>
                 <Campo label="Número comprobante" ayuda="Ej: 0001-00012345">
                   <input className={inputCls} value={form.comprobante} onChange={(e) => set('comprobante', e.target.value)} />
+                </Campo>
+                <Campo label="Factura (PDF o foto)" ayuda="Se adjunta al gasto y el vecino la puede ver desde el portal">
+                  <label className={`${inputCls} cursor-pointer flex items-center gap-2 truncate`}>
+                    <span className="text-teal-600 font-medium shrink-0">{archivo ? 'Cambiar' : 'Adjuntar'}</span>
+                    <span className="text-slate-500 truncate text-xs">{archivo ? archivo.name : 'ningún archivo'}</span>
+                    <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
+                  </label>
                 </Campo>
 
                 {/* Importes por categoría de prorrateo */}

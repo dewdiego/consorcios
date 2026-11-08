@@ -114,6 +114,21 @@ export function validarCoeficientes(unidades: Unidad[], gastos: Gasto[]): string
  * Genera (o regenera) los cupones de una liquidación ABIERTA:
  * prorratea los gastos vinculados por categoría, arrastra saldo anterior y calcula intereses.
  */
+/** Redondeo del cupón según configuración del consorcio (hacia arriba, como hace Octavo). */
+export function redondear(monto: number, modo: string | null | undefined) {
+  const m = modo === 'unidad' ? 1 : modo === 'decena' ? 10 : modo === 'centena' ? 100 : 0;
+  return m ? Math.ceil(monto / m) * m : monto;
+}
+
+/** Corre un vencimiento que cae sábado o domingo según la configuración. */
+export function ajustarVencimiento(fecha: string, modo: string | null | undefined) {
+  if (!modo || modo === 'no_modificar') return fecha;
+  const d = new Date(`${fecha}T12:00:00`);
+  const paso = modo === 'anterior_habil' ? -1 : 1;
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + paso);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function generarCupones(liquidacionId: string): Promise<ResultadoLiquidacion> {
   const { data: liq, error: liqErr } = await supabase
     .from('liquidaciones').select('*, consorcios(*)').eq('id', liquidacionId).single();
@@ -145,10 +160,11 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
     const monto_c = round2(totalPorCat.C * Number(u.coef_c) / 100);
     const monto_d = round2(totalPorCat.D * Number(u.coef_d) / 100);
     const saldo_anterior = round2(saldos.get(u.id)?.saldo || 0);
-    const intereses = saldo_anterior > 0 ? round2(saldo_anterior * interesPct / 100) : 0;
+    // Interés por mora + monto fijo a deudores (gastos administrativos del reclamo), sólo si debe
+    const intereses = saldo_anterior > 0 ? round2(saldo_anterior * interesPct / 100 + Number(consorcio.monto_fijo_deudores || 0)) : 0;
     const gastosPeriodo = round2(monto_a + monto_b + monto_c + monto_d);
-    const total = round2(gastosPeriodo + saldo_anterior + intereses);
-    const total_2do_venc = round2(gastosPeriodo * (1 + recargoPct / 100) + saldo_anterior + intereses);
+    const total = redondear(round2(gastosPeriodo + saldo_anterior + intereses), consorcio.redondeo);
+    const total_2do_venc = redondear(round2(gastosPeriodo * (1 + recargoPct / 100) + saldo_anterior + intereses), consorcio.redondeo);
     return {
       liquidacion_id: liquidacionId, consorcio_id: liq.consorcio_id, unidad_id: u.id,
       monto_a, monto_b, monto_c, monto_d, saldo_anterior, intereses, total, total_2do_venc,

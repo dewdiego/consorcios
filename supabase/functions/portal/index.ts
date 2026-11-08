@@ -55,6 +55,17 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
       ? await sb.from('cupones').select('liquidacion_id, unidad_id, saldo_anterior, intereses, total, total_2do_venc, estado').in('liquidacion_id', liqIds).in('unidad_id', us.map((u) => u.id))
       : { data: [] };
     const { data: pagos } = await sb.from('pagos').select('unidad_id, fecha, monto, metodo').in('unidad_id', us.map((u) => u.id)).order('fecha', { ascending: false }).limit(30);
+    // Gastos de la última expensa con sus facturas (si el consorcio lo tiene habilitado) + carpeta externa de comprobantes
+    const { data: confs } = await sb.from('consorcios').select('id, url_comprobantes, mostrar_facturas_portal').in('id', consorcioIds);
+    const liqConGastos = liqIds.filter((id) => { const l = [...ultimaPorConsorcio.values()].find((x) => x.id === id); const c = (confs || []).find((x) => x.id === l?.consorcio_id); return c?.mostrar_facturas_portal !== false; });
+    const { data: gastos } = liqConGastos.length
+      ? await sb.from('gastos').select('liquidacion_id, fecha, descripcion, categoria, monto, tipo_comprobante, comprobante, archivo_path, proveedores(nombre), rubros(nombre)').in('liquidacion_id', liqConGastos).order('fecha')
+      : { data: [] };
+    const gastosDe = (liqId: string) => (gastos || []).filter((g) => g.liquidacion_id === liqId).map((g) => ({
+      fecha: g.fecha, descripcion: g.descripcion, categoria: g.categoria, monto: Number(g.monto), comprobante: g.comprobante, tipo_comprobante: g.tipo_comprobante,
+      proveedor: (g.proveedores as unknown as { nombre: string } | null)?.nombre || null, rubro: (g.rubros as unknown as { nombre: string } | null)?.nombre || null,
+      factura_url: g.archivo_path ? sb.storage.from('archivos').getPublicUrl(g.archivo_path).data.publicUrl : null,
+    }));
 
     const unidades = us.map((u) => {
       const liq = ultimaPorConsorcio.get(u.consorcio_id);
@@ -68,7 +79,10 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
         id: u.id, uf: u.uf, depto: u.depto, consorcio: u.consorcios?.nombre, direccion: u.consorcios?.direccion,
         rol: (u.propietario_email || '').toLowerCase() === email ? 'propietario' : 'inquilino',
         nombre: (u.propietario_email || '').toLowerCase() === email ? u.propietario : u.inquilino,
-        expensa: liq ? { periodo: liq.periodo, estado: liq.estado, vencimiento_1: liq.fecha_vencimiento_1, vencimiento_2: liq.fecha_vencimiento_2, pdf_url, cupon } : null,
+        expensa: liq ? {
+          periodo: liq.periodo, estado: liq.estado, vencimiento_1: liq.fecha_vencimiento_1, vencimiento_2: liq.fecha_vencimiento_2, pdf_url, cupon,
+          gastos: gastosDe(liq.id), url_comprobantes: (confs || []).find((c) => c.id === u.consorcio_id)?.url_comprobantes || null,
+        } : null,
         pagos: (pagos || []).filter((p) => p.unidad_id === u.id).slice(0, 6),
       };
     });
