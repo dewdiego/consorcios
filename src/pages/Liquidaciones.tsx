@@ -8,6 +8,7 @@ import { GastoModal } from '@/components/GastoModal';
 import { EnvioExpensas } from '@/components/EnvioExpensas';
 import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
 import { ConfigExpensas } from '@/components/ConfigExpensas';
+import { imprimirResumenExpensas } from '@/lib/resumenExpensas';
 import {
   ajustarVencimiento, CATEGORIAS, cerrarLiquidacion, eliminarPago, fmtDate, fmtMoney, generarCupones, hoyISO,
   montoEsperado, notificar, periodoActual, periodoLabel, periodoSiguiente, reabrirLiquidacion, registrarPago, round2,
@@ -215,7 +216,7 @@ export function Liquidaciones() {
                       <button className={btn} onClick={() => setDetalleId(l!.id)}><Lock size={13} /> Cerrar</button>
                       <button className={btn} onClick={() => { setEditForm({ nombre: l!.nombre || '', fecha_vencimiento_1: l!.fecha_vencimiento_1 || '', fecha_vencimiento_2: l!.fecha_vencimiento_2 || '', notas: l!.notas || '' }); setEditar(l!); }}><Pencil size={13} /> Editar</button>
                     </> : <>
-                      <button className={btn} onClick={() => setDetalleId(l!.id)}><FileText size={13} /> Resumen</button>
+                      <button className={btn} onClick={() => imprimirResumenExpensas(l!, consorcio)}><FileText size={13} /> Resumen</button>
                       <button className={btn} onClick={() => setDetalleId(l!.id)}><Receipt size={13} /> Cupones</button>
                       <button className={btn} onClick={() => setDetalleId(l!.id)}><Send size={13} /> Enviar</button>
                       <button className={btn} onClick={() => setDetalleId(l!.id)}><Unlock size={13} /> Reabrir</button>
@@ -420,6 +421,14 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
   });
 
   // ---- acciones de liquidación ----
+  /** Simular: genera los cupones provisorios sobre la liquidación abierta y abre el resumen marcado como simulación. */
+  const simular = () => run(async () => {
+    const res = await generarCupones(liq.id);
+    await loadAll();
+    await imprimirResumenExpensas({ ...liq, total_gastos: res.totalGastos, total_distribuido: res.totalDistribuido }, consorcio!, true);
+    return `Simulación: ${res.cupones} cupones, ${fmtMoney(res.totalDistribuido)} a distribuir.${res.advertencias.length ? ' ' + res.advertencias.join(' ') : ''}`;
+  });
+
   const previsualizar = () => run(async () => {
     const res = await generarCupones(liq.id);
     if (res.advertencias.length) setMsg({ tipo: 'warn', texto: res.advertencias.join(' ') });
@@ -491,7 +500,8 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
         action={
           <div className="flex gap-2 flex-wrap items-center">
             <Badge color={estadoLiq[liq.estado].color}>{estadoLiq[liq.estado].label}</Badge>
-            {abierta && <Button variant="secondary" onClick={previsualizar} disabled={busy}><RefreshCw size={15} /> Generar cupones</Button>}
+            {abierta && <Button variant="secondary" onClick={simular} disabled={busy}><RefreshCw size={15} /> Simular</Button>}
+            {!abierta && <Button variant="secondary" onClick={() => imprimirResumenExpensas(liq, consorcio!)}><FileText size={15} /> Resumen (PDF)</Button>}
             {abierta && <Button onClick={cerrar} disabled={busy}><Lock size={15} /> Cerrar período</Button>}
             {!abierta && <Button onClick={() => setTab('envios')}><Send size={15} /> Enviar</Button>}
             {!abierta && <Button variant="secondary" onClick={reabrir} disabled={busy}><Unlock size={15} /> Reabrir</Button>}
@@ -544,12 +554,12 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
                 if (!items.length && !abierta) return null;
                 return (
                   <div key={r.id || 'sin'} className="rounded-lg border border-slate-200">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-t-lg">
-                      <span className="text-xs text-slate-400 w-5">{idx + 1}</span>
-                      <span className="font-semibold text-slate-700 text-sm uppercase">{r.nombre}</span>
-                      {sub > 0 && <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 rounded px-1.5 py-0.5">{total ? Math.round(sub / total * 100) : 0}%</span>}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-[#1e2a4a] rounded-t-lg">
+                      <span className="text-xs text-white/60 w-5 font-semibold">{idx + 1}</span>
+                      <span className="font-bold text-white text-sm uppercase tracking-wide">{r.nombre}</span>
+                      {sub > 0 && <span className="text-[10px] font-bold text-[#1e2a4a] bg-teal-300 rounded px-1.5 py-0.5">{total ? Math.round(sub / total * 100) : 0}%</span>}
                       <div className="flex-1" />
-                      {abierta && r.id && <button onClick={() => { setGastoEdit(null); setRubroNuevo(r.id); setGastoModal(true); }} className="text-xs font-semibold text-teal-600 border border-teal-200 rounded px-2 py-1 hover:bg-teal-50">+ Agregar</button>}
+                      {abierta && r.id && <button onClick={() => { setGastoEdit(null); setRubroNuevo(r.id); setGastoModal(true); }} className="text-xs font-semibold text-white border border-white/40 rounded px-2 py-1 hover:bg-white/15">+ Agregar</button>}
                     </div>
                     {items.length === 0 ? <p className="text-xs text-slate-400 px-4 py-2">Sin movimientos</p> : items.map((g) => (
                       <div key={g.id} className="flex items-start gap-3 px-4 py-2.5 border-t border-slate-100 hover:bg-slate-50/60">
@@ -570,7 +580,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
                         </div>}
                       </div>
                     ))}
-                    {items.length > 0 && <div className="flex justify-end px-4 py-1.5 border-t border-slate-100 text-xs text-slate-500">Total categoría: <b className="ml-1 text-slate-700">{fmtMoney(sub)}</b></div>}
+                    {items.length > 0 && <div className="flex justify-end px-4 py-1.5 border-t border-slate-200 bg-slate-50 rounded-b-lg text-xs text-slate-600">Total categoría: <b className="ml-1 text-slate-800">{fmtMoney(sub)}</b></div>}
                   </div>
                 );
               });
