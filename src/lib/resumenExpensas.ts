@@ -2,6 +2,11 @@ import { supabase, type Administracion, type Consorcio, type Cupon, type Gasto, 
 import { fmtDate, fmtMoney, periodoLabel, round2 } from './engine';
 import { escHtml, imprimirHtml } from './imprimir';
 import QRCode from 'qrcode';
+import { jsPDF } from 'jspdf';
+import { applyPlugin, type UserOptions } from 'jspdf-autotable';
+applyPlugin(jsPDF);
+// El plugin se registra en jsPDF; se llama como método del documento (evita problemas de export default al empaquetar)
+const autoTable = (doc: jsPDF, opts: UserOptions) => (doc as unknown as { autoTable: (o: UserOptions) => void }).autoTable(opts);
 
 /*
   "Resumen" de la liquidación: el PDF de expensas con el formato habitual (tipo "Programa mis expensas"):
@@ -14,7 +19,12 @@ const COLS: { key: 'a' | 'b' | 'c' | 'd'; titulo: string }[] = [
   { key: 'a', titulo: 'Expensas ordinarias (A)' }, { key: 'b', titulo: 'Cocheras (B)' }, { key: 'c', titulo: 'Fondo extraordinario (C)' }, { key: 'd', titulo: 'Particulares (D)' },
 ];
 /** QR generado localmente (sin servicios externos), como imagen embebida. */
-const qr = async (data: string) => `<img src="${await QRCode.toDataURL(data, { width: 220, margin: 0 })}" width="110" height="110" alt="QR">`;
+const qrData = (data: string) => QRCode.toDataURL(data, { width: 220, margin: 0 });
+const qr = async (data: string) => `<img src="${await qrData(data)}" width="110" height="110" alt="QR">`;
+const TEAL: [number, number, number] = [19, 163, 154];
+const NAVY: [number, number, number] = [30, 42, 74];
+const GRIS: [number, number, number] = [241, 245, 249];
+const strip = (h: string) => h.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
 const n = (v: unknown) => fmtMoney(Number(v) || 0);
 
 export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Consorcio, simulacion = false) {
@@ -124,6 +134,137 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     ${liq.notas ? sec('NOTAS', `<div class="notas">${escHtml(liq.notas)}</div>`) : ''}
     ${fp.length ? `<div class="sec"><div class="sec-b"><div class="fp-h">FORMAS DE PAGO</div>${fp.map((x) => `<div>${x}</div>`).join('')}</div></div>` : ''}
     <p class="chico mut center" style="margin-top:14px">${escHtml(a?.nombre || '')}${a?.rpa ? ` · R.P.A. ${escHtml(a.rpa)}` : ''} · Liquidación emitida el ${fmtDate(new Date().toISOString().slice(0, 10))}</p>`;
+  /** PDF vectorial (texto nítido, igual que la impresión) con jsPDF + autotable. */
+  const generarPdf = async (): Promise<Blob> => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const M = 10, W = 210 - 2 * M;
+    let y = M;
+    const fin = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+    const salto = (alto: number) => { if (y + alto > 297 - M) { doc.addPage('a4', 'portrait'); y = M; } };
+    const barra = (titulo: string, ref = '', lineas = 1, reserva = 22) => {
+      const h = 5 + lineas * 4.5; salto(h + reserva); // nunca queda la barra sola al pie de la hoja
+      doc.setFillColor(...TEAL); doc.rect(M, y, W, h, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(lineas > 1 ? 10 : 9);
+      titulo.split('\n').forEach((t, i) => doc.text(t, 105, y + 4.3 + i * 4.5, { align: 'center' }));
+      if (ref) { doc.setFontSize(6.5); doc.text(ref, M + 2, y + 3.8); }
+      doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'normal'); y += h + 2;
+    };
+    const texto = (t: string, size = 8.5, bold = false, x = M + 2) => { doc.setFontSize(size); doc.setFont('helvetica', bold ? 'bold' : 'normal'); const lines = doc.splitTextToSize(t, W - 4); salto(lines.length * size * 0.45 + 2); doc.text(lines, x, y + size * 0.35); y += lines.length * size * 0.45 + 2; doc.setFont('helvetica', 'normal'); };
+    const tabla = (opts: UserOptions) => {
+      autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [30, 41, 59] }, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 7 }, ...opts });
+      y = fin() + 3;
+    };
+    const dinero = (v: unknown) => n(v);
+    const right = { halign: 'right' as const };
+
+    // Encabezado
+    if (simulacion) { doc.setFillColor(254, 243, 199); doc.rect(M, y, W, 7, 'F'); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.text('SIMULACIÓN — la liquidación sigue abierta; los importes pueden cambiar hasta el cierre.', 105, y + 4.7, { align: 'center' }); y += 9; }
+    doc.setFontSize(6.5); doc.setTextColor(100, 116, 139); doc.text('Modelo de liquidación de expensas conforme disposición', 105, y + 2, { align: 'center' }); y += 4; doc.setTextColor(30, 41, 59);
+    barra(`${(a?.nombre || 'ADMINISTRACIÓN').toUpperCase()}\n${strip(titulo)}`, '', 2);
+    const col = (lineas: [string, string][]) => lineas.filter(([, v]) => v).map(([k, v]) => `${k}${v}`).join('\n');
+    autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'plain', styles: { fontSize: 7.5, cellPadding: 1.5, textColor: [30, 41, 59] }, body: [[
+      { content: 'ADMINISTRACIÓN\n' + col([['Nombre: ', a?.nombre || ''], ['Domicilio: ', a?.direccion || ''], ['Teléfono: ', a?.telefono || ''], ['Mail: ', a?.email || ''], ['CUIT: ', a?.cuit || ''], ['Inscripción R.P.A.: ', a?.rpa || '']]) },
+      { content: 'EDIFICIO\n' + col([['Nombre: ', consorcio.nombre], ['Dirección: ', `${consorcio.direccion || ''}${consorcio.ciudad ? `, ${consorcio.ciudad}` : ''}`], ['CUIT: ', consorcio.cuit || ''], ['CBU: ', consorcio.cbu || '']]) },
+      { content: 'EXPENSAS\n' + col([['Período: ', liq.nombre || periodoLabel(liq.periodo)], ['1er Vencimiento: ', fmtDate(liq.fecha_vencimiento_1)], ['2do Vencimiento: ', `${fmtDate(liq.fecha_vencimiento_2)} (+${liq.recargo_2do_venc_pct}%)`], ['Interés por mora: ', Number(liq.interes_mora_pct) ? `${liq.interes_mora_pct}% mensual` : '']]) },
+    ]], didParseCell: (d) => { if (d.section === 'body') d.cell.styles.cellWidth = W / 3; } });
+    y = fin() + 3;
+
+    // Importante
+    barra('IMPORTANTE');
+    texto(`En caso de urgencia   ${a?.telefono || ''}   ${a?.nombre || ''}`);
+    // Enlaces de acceso
+    barra('ENLACES DE ACCESO', '(Conf disp DI-2024-1146-GCABA-DGDYPC)');
+    salto(30);
+    const qrA = await qrData('https://www.afip.gob.ar/aportesenlinea');
+    doc.addImage(qrA, 'PNG', M + 2, y, 24, 24);
+    doc.setFontSize(7); doc.text(doc.splitTextToSize('Mediante el siguiente enlace https://www.afip.gob.ar/aportesenlinea o QR, podrá ingresar a los datos acerca del estado de los pagos efectuados correspondientes a los aportes y contribuciones a la seguridad social, con clave fiscal y el CUIL del empleado.', W / 2 - 32), M + 29, y + 3);
+    if (consorcio.url_comprobantes) {
+      const qrC = await qrData(consorcio.url_comprobantes);
+      doc.addImage(qrC, 'PNG', M + W / 2 + 2, y, 24, 24);
+      doc.text(doc.splitTextToSize('Mediante el siguiente link o QR podrá acceder al listado de comprobantes ingresados por el administrador, correspondientes al período actual.', W / 2 - 32), M + W / 2 + 29, y + 3);
+    } else doc.text(doc.splitTextToSize('Los comprobantes de cada gasto se consultan en el portal de vecinos.', W / 2 - 6), M + W / 2 + 2, y + 3);
+    y += 28;
+
+    // Remuneraciones
+    if (sueldos.length) {
+      barra('REMUNERACIONES AL PERSONAL Y CARGAS SOCIALES', '(Conf. Art. 10 inc d Ley Nº 941)');
+      for (const sl of sueldos) {
+        const e = sl.empleados; const lineas = sl.detalle || [];
+        autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'plain', styles: { fontSize: 7.5, cellPadding: 1 }, body: [[
+          `Apellido / Nombre: ${e?.nombre || ''}\nCargo: ${(e?.cargo || '').replace('_', ' ')}${e?.vive_en_edificio ? ' con vivienda' : ' sin vivienda'}`,
+          `CUIL: ${e?.cuil || ''}\nCategoría: ${e?.categoria || ''}`, `Período: ${periodoLabel(sl.periodo)}\nFecha ingreso: ${fmtDate(e?.antiguedad_fecha)}`]] });
+        y = fin() + 1;
+        const li = (tipo: string) => lineas.filter((x) => x.tipo === tipo).map((x) => [`   ${x.concepto}${x.detalle ? ` (${x.detalle})` : ''}`, dinero(x.monto)]);
+        const body: (string | { content: string; styles?: Record<string, unknown> })[][] = [
+          [{ content: 'Haberes remunerativos', styles: { fontStyle: 'bold' } }, { content: dinero(sl.bruto), styles: { fontStyle: 'bold', halign: 'right' } }], ...li('rem'),
+          ...(Number(sl.no_remunerativo) ? [[{ content: 'No remunerativo', styles: { fontStyle: 'bold' } }, { content: dinero(sl.no_remunerativo), styles: { fontStyle: 'bold', halign: 'right' } }], ...li('norem')] : []),
+          [{ content: 'Deducciones', styles: { fontStyle: 'bold' } }, { content: dinero(round2(Number(sl.aportes) + Number(sl.descuentos))), styles: { fontStyle: 'bold', halign: 'right' } }], ...li('desc'),
+          [{ content: 'Total neto', styles: { fontStyle: 'bold', fillColor: GRIS } }, { content: dinero(sl.neto), styles: { fontStyle: 'bold', halign: 'right', fillColor: GRIS } }],
+          ['Contribuciones patronales (a cargo del consorcio)', dinero(sl.contribuciones)],
+          [{ content: 'Costo total del período', styles: { fontStyle: 'bold', fillColor: GRIS } }, { content: dinero(sl.costo_total), styles: { fontStyle: 'bold', halign: 'right', fillColor: GRIS } }],
+        ];
+        tabla({ theme: 'striped', body, columnStyles: { 1: { halign: 'right', cellWidth: 35 } } });
+      }
+    }
+
+    // Gastos
+    barra('DETALLE DE GASTOS DEL PERÍODO', '(Conf. Art. 10 inc e y f Ley Nº 941)');
+    const headG = ['RUBROS - CONCEPTO', ...colsUsadas.map((c) => c.titulo), 'TOTAL'];
+    const bodyG: unknown[][] = [];
+    grupos.forEach((gr, i) => {
+      const sub = round2(gr.items.reduce((x, g) => x + Number(g.monto), 0));
+      bodyG.push([{ content: `${i + 1}. ${gr.nombre.toUpperCase()}  (${totalGastos ? (sub / totalGastos * 100).toFixed(1) : 0}%)`, colSpan: headG.length, styles: { fontStyle: 'bold', fillColor: GRIS } }]);
+      for (const g of gr.items) bodyG.push([`${g.descripcion}${g.proveedores?.nombre ? ` · ${g.proveedores.nombre}` : ''}${g.comprobante ? ` · ${g.tipo_comprobante || ''} ${g.comprobante}` : ''}${g.periodo_facturado ? ` · ${g.periodo_facturado}` : ''}`, ...colsUsadas.map((c) => Number(g[`monto_${c.key}` as keyof Gasto]) ? dinero(g[`monto_${c.key}` as keyof Gasto]) : ''), { content: dinero(g.monto), styles: { fontStyle: 'bold', ...right } }]);
+      bodyG.push([{ content: `Total ${gr.nombre}`, colSpan: headG.length - 1, styles: { fontStyle: 'bold', halign: 'right' } }, { content: dinero(sub), styles: { fontStyle: 'bold', ...right } }]);
+    });
+    const colStyles: Record<number, { halign: 'right'; cellWidth?: number }> = {}; for (let i = 1; i < headG.length; i++) colStyles[i] = { halign: 'right', cellWidth: 30 };
+    tabla({ head: [headG], body: bodyG as never, columnStyles: colStyles, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 7, halign: 'right' }, didParseCell: (d) => { if (d.section === 'head' && d.column.index === 0) d.cell.styles.halign = 'left'; } });
+
+    barra('TOTAL DE GASTOS');
+    tabla({ head: [['', ...colsUsadas.map((c) => c.titulo), 'TOTAL']], body: [[{ content: 'TOTALES', styles: { fontStyle: 'bold' } }, ...colsUsadas.map((c) => ({ content: dinero(tot[c.key]), styles: { fontStyle: 'bold', ...right } })), { content: dinero(totalGastos), styles: { fontStyle: 'bold', ...right } }]] as never, columnStyles: colStyles });
+
+    // Estado financiero + patrimonial (dos tablas lado a lado)
+    barra('ESTADO FINANCIERO', '(Conf. Art. 10 inc c e i Ley Nº 941)');
+    const y0 = y; const mitad = W / 2 - 2;
+    autoTable(doc, { startY: y0, margin: { left: M, right: M + mitad + 4 }, tableWidth: mitad, theme: 'grid', styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: [203, 213, 225], lineWidth: 0.15 }, head: [[{ content: 'RESUMEN DE MOVIMIENTOS CAJA', colSpan: 2, styles: { halign: 'center', fillColor: [226, 232, 240], textColor: [30, 41, 59] } }]],
+      body: [['SALDO INICIAL', dinero(saldoInicial)], ['INGRESOS DEL MES', dinero(ingresos)], ['EGRESOS POR GASTOS DEL MES', dinero(-egresos)], [{ content: 'SALDO AL CIERRE', styles: { fontStyle: 'bold', fillColor: GRIS } }, { content: dinero(saldoCierre), styles: { fontStyle: 'bold', fillColor: GRIS, ...right } }]] as never, columnStyles: { 1: { halign: 'right' } } });
+    const yA = fin();
+    autoTable(doc, { startY: y0, margin: { left: M + mitad + 4, right: M }, tableWidth: mitad, theme: 'grid', styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: [203, 213, 225], lineWidth: 0.15 }, head: [[{ content: 'ESTADO PATRIMONIAL', colSpan: 2, styles: { halign: 'center', fillColor: [226, 232, 240], textColor: [30, 41, 59] } }]],
+      body: [['DISPONIBILIDADES AL CIERRE', dinero(saldoCierre)], ['EXPENSAS A COBRAR POR GASTOS', dinero(expensasACobrar)], ['DEUDAS E INTERESES A COBRAR', dinero(deudasAnteriores)], ['PROVEEDORES A PAGAR', dinero(-aPagar)], [{ content: 'PATRIMONIO NETO AL CIERRE', styles: { fontStyle: 'bold', fillColor: GRIS } }, { content: dinero(round2(saldoCierre + expensasACobrar - aPagar)), styles: { fontStyle: 'bold', fillColor: GRIS, ...right } }]] as never, columnStyles: { 1: { halign: 'right' } } });
+    y = Math.max(yA, fin()) + 3;
+
+    barra('DATOS DE JUICIOS', '(Conf. Art. 10 inc h Ley Nº 941)');
+    texto('No hay juicios vigentes informados', 8, false, 105 - 25);
+
+    // Estado de cuentas (apaisado)
+    if (cs.length) {
+      doc.addPage('a4', 'landscape'); y = M;
+      const LW = 297 - 2 * M;
+      doc.setFillColor(...TEAL); doc.rect(M, y, LW, 7, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('ESTADO DE CUENTAS Y PRORRATEO DE GASTOS', 148.5, y + 4.8, { align: 'center' }); doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'normal'); y += 9;
+      const headC = ['UF', 'Depto.', 'Propietario', 'Saldo\nAnterior', 'Pagos\nRecibidos', 'Deuda', 'Interés', 'Disponible', ...colsUsadas.flatMap((c) => [`% ${c.key.toUpperCase()}`, c.titulo]), 'Redon.', 'TOTAL', '2do vto'];
+      const bodyC = cs.map((c) => {
+        const u = c.unidades || us.find((x) => x.id === c.unidad_id); const pag = pagosPorUnidad[c.unidad_id] || 0;
+        const gastosCupon = round2(Number(c.monto_a) + Number(c.monto_b) + Number(c.monto_c) + Number(c.monto_d));
+        const red = round2(Number(c.total) - gastosCupon - Number(c.saldo_anterior) - Number(c.intereses));
+        return [String(u?.uf ?? '').padStart(3, '0'), u?.depto || '', u?.propietario || '', dinero(round2(Number(c.saldo_anterior) + pag)), pag ? dinero(pag) : '', Number(c.saldo_anterior) > 0 ? dinero(c.saldo_anterior) : '', Number(c.intereses) ? dinero(c.intereses) : '', Number(c.saldo_anterior) < 0 ? dinero(-Number(c.saldo_anterior)) : '',
+          ...colsUsadas.flatMap((k) => [`${coef(u, k.key).toFixed(2)}%`, dinero(c[`monto_${k.key}` as keyof Cupon])]), red ? dinero(red) : '', { content: dinero(c.total), styles: { fontStyle: 'bold', ...right } }, dinero(c.total_2do_venc)];
+      });
+      const totC = ['', '', 'TOTALES', '', dinero(Object.values(pagosPorUnidad).reduce((x, v) => x + v, 0)), dinero(deudasAnteriores), dinero(totCup('intereses')), '', ...colsUsadas.flatMap((c) => ['100,00%', dinero(totCup(`monto_${c.key}` as keyof Cupon))]), '', dinero(totCup('total')), dinero(totCup('total_2do_venc'))];
+      const cstyles: Record<number, { halign: 'right' | 'left'; cellWidth?: number }> = { 0: { halign: 'left', cellWidth: 9 }, 1: { halign: 'left', cellWidth: 16 }, 2: { halign: 'left', cellWidth: 38 } };
+      for (let i = 3; i < headC.length; i++) cstyles[i] = { halign: 'right' };
+      autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 6.3, cellPadding: 0.8, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [30, 41, 59], overflow: 'ellipsize' }, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 6.3, halign: 'right' },
+        head: [headC], body: bodyC as never, foot: [totC], footStyles: { fillColor: GRIS, textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 6.3, halign: 'right' }, columnStyles: cstyles, didParseCell: (d) => { if (d.section === 'head' && d.column.index < 3) d.cell.styles.halign = 'left'; } });
+      doc.addPage('a4', 'portrait'); y = M;
+    }
+
+    if (liq.notas) { barra('NOTAS'); texto(liq.notas, 8.5); }
+    if (fp.length) { salto(20); doc.setTextColor(...TEAL); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('FORMAS DE PAGO', M + 2, y + 3); doc.setTextColor(30, 41, 59); y += 5; for (const l of fp) texto(strip(l), 8.5); }
+    doc.setFontSize(6.5); doc.setTextColor(100, 116, 139); salto(6); doc.text(`${a?.nombre || ''}${a?.rpa ? ` · R.P.A. ${a.rpa}` : ''} · Liquidación emitida el ${fmtDate(new Date().toISOString().slice(0, 10))}`, 105, y + 3, { align: 'center' });
+    // Si la última página quedó vacía (sólo pie), se saca
+    const paginas = doc.getNumberOfPages(); if (paginas > 1 && y <= M + 1 && !liq.notas && !fp.length) doc.deletePage(paginas);
+    return doc.output('blob');
+  };
+
   const onGuardar = simulacion ? undefined : async (pdf: Blob) => {
     const path = `liquidaciones/${liq.id}.pdf`;
     const { error } = await supabase.storage.from('archivos').upload(path, pdf, { upsert: true, contentType: 'application/pdf' });
@@ -158,5 +299,5 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     .emp table.t td { border: 0; border-bottom: 1px dotted #e2e8f0; padding: 2px 4px; }
     .apaisado { page: apaisada; page-break-before: always; }
     @page { size: A4; margin: 0; } @page apaisada { size: A4 landscape; margin: 0; }
-    body { padding: 12mm 10mm; } @media print { body { padding: 12mm 10mm; } }`, { onGuardar, nombreArchivo: `${consorcio.nombre} - Expensas ${liq.periodo}` });
+    body { padding: 12mm 10mm; } @media print { body { padding: 12mm 10mm; } }`, { onGuardar, generarPdf, nombreArchivo: `${consorcio.nombre} - Expensas ${liq.periodo}` });
 }

@@ -1,6 +1,8 @@
 type Opciones = {
   /** Si se pasa, aparece el botón "Guardar PDF": genera el PDF en el navegador (sin diálogo de impresión) y lo entrega acá. Devuelve el texto de confirmación. */
   onGuardar?: (pdf: Blob) => Promise<string>;
+  /** Generador vectorial del PDF (jsPDF). Si está, se usa en lugar de la captura de pantalla. */
+  generarPdf?: () => Promise<Blob>;
   nombreArchivo?: string;
 };
 
@@ -8,7 +10,8 @@ type Opciones = {
 export function imprimirHtml(titulo: string, cuerpo: string, extraCss = '', opciones: Opciones = {}) {
   const w = window.open('', '_blank', 'width=900,height=1000');
   if (!w) { alert('El navegador bloqueó la ventana de impresión. Permití ventanas emergentes para este sitio.'); return; }
-  (w as unknown as { __onGuardar?: Opciones['onGuardar'] }).__onGuardar = opciones.onGuardar;
+  (w as unknown as { __onGuardar?: Opciones['onGuardar']; __generarPdf?: Opciones['generarPdf'] }).__onGuardar = opciones.onGuardar;
+  (w as unknown as { __generarPdf?: Opciones['generarPdf'] }).__generarPdf = opciones.generarPdf;
   w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title>
 <style>
   @page { size: A4; margin: 18mm 16mm; }
@@ -52,6 +55,12 @@ async function __guardar(bajar) {
   const b = document.getElementById('btn-guardar'); if (b) b.disabled = true;
   try {
     __aviso('Generando PDF…');
+    if (window.__generarPdf) {
+      const blob = await window.__generarPdf();
+      if (bajar) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = ${JSON.stringify(opciones.nombreArchivo || titulo)} + '.pdf'; a.click(); __aviso('PDF descargado.'); }
+      else { const msg = await window.__onGuardar(blob); __aviso(msg || 'Guardado.'); }
+      if (b) b.disabled = false; setTimeout(() => __aviso(''), 6000); return;
+    }
     if (!window.html2canvas) await __cargar('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
     if (!window.jspdf) await __cargar('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
     const { jsPDF } = window.jspdf;
@@ -99,7 +108,8 @@ async function __guardar(bajar) {
     // Quita una última página vacía si quedó
     const pages = pdf.getNumberOfPages(); if (pages > 1 && y === M) pdf.deletePage(pages);
     const blob = pdf.output('blob');
-    if (bajar) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = ${JSON.stringify(opciones.nombreArchivo || titulo)} + '.pdf'; a.click(); __aviso('PDF descargado.'); }
+    if (bajar === 'ver') { window.open(URL.createObjectURL(blob), '_blank'); __aviso('PDF abierto en otra pestaña: desde ahí se imprime (Ctrl+P).'); }
+    else if (bajar) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = ${JSON.stringify(opciones.nombreArchivo || titulo)} + '.pdf'; a.click(); __aviso('PDF descargado.'); }
     else { const msg = await window.__onGuardar(blob); __aviso(msg || 'Guardado.'); }
   } catch (e) { __aviso('Error: ' + (e && e.message ? e.message : e)); }
   if (b) b.disabled = false;
