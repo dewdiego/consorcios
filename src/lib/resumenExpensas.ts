@@ -1,6 +1,7 @@
 import { supabase, type Administracion, type Consorcio, type Cupon, type Gasto, type Liquidacion, type Rubro, type SueldoLiquidacion, type Unidad } from './supabase';
 import { fmtDate, fmtMoney, periodoLabel, round2 } from './engine';
 import { escHtml, imprimirHtml } from './imprimir';
+import QRCode from 'qrcode';
 
 /*
   "Resumen" de la liquidación: el PDF de expensas con el formato habitual (tipo "Programa mis expensas"):
@@ -12,7 +13,8 @@ import { escHtml, imprimirHtml } from './imprimir';
 const COLS: { key: 'a' | 'b' | 'c' | 'd'; titulo: string }[] = [
   { key: 'a', titulo: 'Expensas ordinarias (A)' }, { key: 'b', titulo: 'Cocheras (B)' }, { key: 'c', titulo: 'Fondo extraordinario (C)' }, { key: 'd', titulo: 'Particulares (D)' },
 ];
-const qr = (data: string) => `<img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(data)}" width="110" height="110" alt="QR">`;
+/** QR generado localmente (sin servicios externos), como imagen embebida. */
+const qr = async (data: string) => `<img src="${await QRCode.toDataURL(data, { width: 220, margin: 0 })}" width="110" height="110" alt="QR">`;
 const n = (v: unknown) => fmtMoney(Number(v) || 0);
 
 export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Consorcio, simulacion = false) {
@@ -84,7 +86,7 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
   const totCup = (k: keyof Cupon) => round2(cs.reduce((s, c) => s + Number(c[k] || 0), 0));
 
   const titulo = `${simulacion ? 'SIMULACIÓN · ' : ''}EXPENSAS - Liquidación de ${escHtml(liq.nombre || periodoLabel(liq.periodo))}`;
-  const sec = (h: string, cuerpo: string, ref = '', extra = '') => `<div class="sec ${extra}"><div class="sec-h">${ref ? `<span class="ref">${ref}</span>` : ''}<span>${h}</span></div><div class="sec-b">${cuerpo}</div></div>`;
+  const sec = (h: string, cuerpo: string, ref = '', extra = 'corta') => `<div class="sec ${extra}"><div class="sec-h">${ref ? `<span class="ref">${ref}</span>` : ''}<span>${h}</span></div><div class="sec-b">${cuerpo}</div></div>`;
   const fp = [consorcio.banco ? `LAS EXPENSAS SE DEPOSITAN EN ${escHtml(consorcio.banco.toUpperCase())}` : '', consorcio.cbu ? `CBU / CTA: ${escHtml(consorcio.cbu)}` : '', a?.email ? `COMPROBANTE POR MAIL A: <b>${escHtml(a.email)}</b>` : '', a?.telefono ? `WA ${escHtml(a.telefono)}` : ''].filter(Boolean);
 
   // Remuneraciones al personal (detalle del recibo de cada empleado del período), como exige la Ley 941
@@ -94,6 +96,9 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     return `<div class="emp"><div class="cols3" style="margin-bottom:4px"><div>Apellido / Nombre: <b>${escHtml(e?.nombre || '')}</b><br>Cargo: <b>${escHtml((e?.cargo || '').replace('_', ' '))}${e?.vive_en_edificio ? ' con vivienda' : ' sin vivienda'}</b></div><div>CUIL: <b>${escHtml(e?.cuil || '')}</b><br>Categoría: <b>${escHtml(e?.categoria || '')}</b></div><div>Período: <b>${escHtml(periodoLabel(sl.periodo))}</b><br>Fecha ingreso: <b>${fmtDate(e?.antiguedad_fecha)}</b></div></div>
       <table class="t"><tr class="sub"><td>Haberes remunerativos</td><td class="n">${n(sl.bruto)}</td></tr>${li('rem')}${Number(sl.no_remunerativo) ? `<tr class="sub"><td>No remunerativo</td><td class="n">${n(sl.no_remunerativo)}</td></tr>${li('norem')}` : ''}<tr class="sub"><td>Deducciones</td><td class="n">${n(round2(Number(sl.aportes) + Number(sl.descuentos)))}</td></tr>${li('desc')}<tr class="total"><td>Total neto</td><td class="n">${n(sl.neto)}</td></tr><tr><td>Contribuciones patronales (a cargo del consorcio)</td><td class="n">${n(sl.contribuciones)}</td></tr><tr class="total"><td>Costo total del período</td><td class="n">${n(sl.costo_total)}</td></tr></table></div>`;
   }).join('');
+
+  const qrAfip = await qr('https://www.afip.gob.ar/aportesenlinea');
+  const qrComp = consorcio.url_comprobantes ? await qr(consorcio.url_comprobantes) : '';
 
   const html = `
     ${simulacion ? '<div class="caja" style="background:#fef3c7;border-color:#f59e0b;text-align:center"><b>SIMULACIÓN</b> — la liquidación sigue abierta; los importes pueden cambiar hasta el cierre.</div>' : ''}
@@ -105,10 +110,10 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
         <div><b>EXPENSAS</b><br>Período: <b>${escHtml(liq.nombre || periodoLabel(liq.periodo))}</b><br>1er Vencimiento: <b>${fmtDate(liq.fecha_vencimiento_1)}</b><br>2do Vencimiento: <b>${fmtDate(liq.fecha_vencimiento_2)}</b> (+${liq.recargo_2do_venc_pct}%)<br>${Number(liq.interes_mora_pct) ? `Interés por mora: <b>${liq.interes_mora_pct}% mensual</b>` : ''}</div>
       </div></div>
     ${sec('IMPORTANTE', `En caso de urgencia &nbsp; ${escHtml(a?.telefono || '')} &nbsp; ${escHtml(a?.nombre || '')}`)}
-    ${sec('ENLACES DE ACCESO', `<div class="cols2"><div class="qrrow">${qr('https://www.afip.gob.ar/aportesenlinea')}<div class="chico">Mediante el siguiente enlace <b>https://www.afip.gob.ar/aportesenlinea</b> o QR, podrá ingresar a los datos acerca del estado de los pagos efectuados correspondientes a los aportes y contribuciones a la seguridad social, con clave fiscal y el CUIL del empleado.</div></div>
-      <div class="qrrow">${consorcio.url_comprobantes ? `${qr(consorcio.url_comprobantes)}<div class="chico">Mediante el <b>siguiente link</b> o QR podrá acceder al listado de comprobantes ingresados por el administrador, correspondientes al período actual.</div>` : '<div class="chico mut">Los comprobantes de cada gasto se consultan en el portal de vecinos.</div>'}</div></div>`, '(Conf disp DI-2024-1146-GCABA-DGDYPC)')}
-    ${sueldos.length ? sec('REMUNERACIONES AL PERSONAL Y CARGAS SOCIALES', bloqueSueldos, '(Conf. Art. 10 inc d Ley Nº 941)') : ''}
-    ${sec('DETALLE DE GASTOS DEL PERÍODO', `<table class="t"><thead><tr><th>RUBROS - CONCEPTO</th>${colsUsadas.map((c) => `<th class="n">${c.titulo}</th>`).join('')}<th class="n">TOTAL</th></tr></thead><tbody>${tablaGastos}</tbody></table>`, '(Conf. Art. 10 inc e y f Ley Nº 941)')}
+    ${sec('ENLACES DE ACCESO', `<div class="cols2"><div class="qrrow">${qrAfip}<div class="chico">Mediante el siguiente enlace <b>https://www.afip.gob.ar/aportesenlinea</b> o QR, podrá ingresar a los datos acerca del estado de los pagos efectuados correspondientes a los aportes y contribuciones a la seguridad social, con clave fiscal y el CUIL del empleado.</div></div>
+      <div class="qrrow">${consorcio.url_comprobantes ? `${qrComp}<div class="chico">Mediante el <b>siguiente link</b> o QR podrá acceder al listado de comprobantes ingresados por el administrador, correspondientes al período actual.</div>` : '<div class="chico mut">Los comprobantes de cada gasto se consultan en el portal de vecinos.</div>'}</div></div>`, '(Conf disp DI-2024-1146-GCABA-DGDYPC)')}
+    ${sueldos.length ? sec('REMUNERACIONES AL PERSONAL Y CARGAS SOCIALES', bloqueSueldos, '(Conf. Art. 10 inc d Ley Nº 941)', '') : ''}
+    ${sec('DETALLE DE GASTOS DEL PERÍODO', `<table class="t"><thead><tr><th>RUBROS - CONCEPTO</th>${colsUsadas.map((c) => `<th class="n">${c.titulo}</th>`).join('')}<th class="n">TOTAL</th></tr></thead><tbody>${tablaGastos}</tbody></table>`, '(Conf. Art. 10 inc e y f Ley Nº 941)', '')}
     ${sec('TOTAL DE GASTOS', `<table class="t"><thead><tr><th></th>${colsUsadas.map((c) => `<th class="n">${c.titulo}</th>`).join('')}<th class="n">TOTAL</th></tr></thead><tbody><tr class="total"><td>TOTALES</td>${colsUsadas.map((c) => `<td class="n">${n(tot[c.key])}</td>`).join('')}<td class="n">${n(totalGastos)}</td></tr></tbody></table>`)}
     ${sec('ESTADO FINANCIERO', `<div class="subh">RESUMEN DE MOVIMIENTOS CAJA</div><table class="t"><tr class="sub"><td>SALDO INICIAL</td><td class="n">${n(saldoInicial)}</td></tr><tr><td>INGRESOS DEL MES (cobros de expensas y otros)</td><td class="n">${n(ingresos)}</td></tr><tr><td>EGRESOS POR GASTOS DEL MES</td><td class="n">${n(-egresos)}</td></tr><tr class="total"><td>SALDO AL CIERRE</td><td class="n">${n(saldoCierre)}</td></tr></table>
       <div class="subh">ESTADO PATRIMONIAL</div><table class="t"><tr><td>DISPONIBILIDADES AL CIERRE</td><td class="n">${n(saldoCierre)}</td></tr><tr><td>EXPENSAS A COBRAR POR GASTOS</td><td class="n">${n(expensasACobrar)}</td></tr><tr><td>DEUDAS E INTERESES A COBRAR</td><td class="n">${n(deudasAnteriores)}</td></tr><tr><td>PROVEEDORES A PAGAR</td><td class="n">${n(-aPagar)}</td></tr><tr class="total"><td>PATRIMONIO NETO AL CIERRE</td><td class="n">${n(round2(saldoCierre + expensasACobrar - aPagar))}</td></tr></table>`, '(Conf. Art. 10 inc c e i Ley Nº 941)')}
@@ -119,12 +124,20 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     ${liq.notas ? sec('NOTAS', `<div class="notas">${escHtml(liq.notas)}</div>`) : ''}
     ${fp.length ? `<div class="sec"><div class="sec-b"><div class="fp-h">FORMAS DE PAGO</div>${fp.map((x) => `<div>${x}</div>`).join('')}</div></div>` : ''}
     <p class="chico mut center" style="margin-top:14px">${escHtml(a?.nombre || '')}${a?.rpa ? ` · R.P.A. ${escHtml(a.rpa)}` : ''} · Liquidación emitida el ${fmtDate(new Date().toISOString().slice(0, 10))}</p>`;
+  const onGuardar = simulacion ? undefined : async (pdf: Blob) => {
+    const path = `liquidaciones/${liq.id}.pdf`;
+    const { error } = await supabase.storage.from('archivos').upload(path, pdf, { upsert: true, contentType: 'application/pdf' });
+    if (error) throw new Error(error.message);
+    await supabase.from('liquidaciones').update({ pdf_path: path }).eq('id', liq.id);
+    return 'PDF guardado en la liquidación: ya se puede enviar por mail y los vecinos lo ven en el portal.';
+  };
   imprimirHtml(`${consorcio.nombre} - Expensas ${liq.periodo}`, html, `
     :root { --teal: #13a39a; }
     body { font-size: 10.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     h1, h2, h3 { display: none; }
     .center { text-align: center; }
-    .sec { border: 1px solid #94a3b8; border-radius: 3px; margin: 0 0 10px; page-break-inside: avoid; }
+    .sec { border: 1px solid #94a3b8; border-radius: 3px; margin: 0 0 10px; }
+    .sec.corta { page-break-inside: avoid; } tr { page-break-inside: avoid; } thead { display: table-header-group; }
     .sec-h { background: var(--teal); color: #fff; font-weight: bold; text-align: center; padding: 5px 8px; font-size: 11px; position: relative; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .sec-h.big { font-size: 12px; line-height: 1.5; }
     .sec-h .ref { position: absolute; left: 8px; top: 5px; font-size: 9px; font-weight: bold; }
@@ -145,5 +158,5 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     .emp table.t td { border: 0; border-bottom: 1px dotted #e2e8f0; padding: 2px 4px; }
     .apaisado { page: apaisada; page-break-before: always; }
     @page { size: A4; margin: 0; } @page apaisada { size: A4 landscape; margin: 0; }
-    body { padding: 12mm 10mm; } @media print { body { padding: 12mm 10mm; } }`);
+    body { padding: 12mm 10mm; } @media print { body { padding: 12mm 10mm; } }`, { onGuardar, nombreArchivo: `${consorcio.nombre} - Expensas ${liq.periodo}` });
 }
