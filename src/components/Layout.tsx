@@ -2,7 +2,7 @@ import { type ReactNode, useState } from 'react';
 import {
   Archive, BarChart3, Bell, Building2, CalendarDays, ChevronDown, ChevronRight, ClipboardList,
   FileBarChart, LayoutDashboard, LogOut, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
-  Truck, Users, Vote, WalletCards, Wrench, Zap, LayoutGrid
+  Truck, Users, Vote, WalletCards, Wrench, Zap, LayoutGrid, Hammer
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -17,7 +17,7 @@ export type PageKey =
   | 'reclamos'
   | 'compras'
   | 'unidades'
-  | 'mantenimientos'
+  | 'mantenimientos' | 'trabajos'
   | 'exp_liquidaciones' | 'exp_gastos' | 'exp_provisiones' | 'exp_ordenes_pago' | 'exp_cheques' | 'exp_planes' | 'exp_ctacte'
   | 'sueldos'
   | 'contabilidad'
@@ -54,6 +54,7 @@ const NAV: NavEntry[] = [
   { label: 'Compras', icon: <ShoppingCart size={17} />, key: 'compras', porConsorcio: true },
   { label: 'Unidades', icon: <Home size={17} />, key: 'unidades', porConsorcio: true },
   { label: 'Mantenimientos', icon: <Wrench size={17} />, key: 'mantenimientos', porConsorcio: true },
+  { label: 'Trabajos en unidades', icon: <Hammer size={17} />, key: 'trabajos', porConsorcio: true },
   { label: 'Expensas', icon: <Receipt size={17} />, porConsorcio: true, children: [
     { key: 'exp_liquidaciones', label: 'Liquidaciones' },
     { key: 'exp_gastos', label: 'Gastos pendientes' },
@@ -85,6 +86,7 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'reclamos', label: 'Reclamos' },
     { key: 'consultas', label: 'Consultas' },
     { key: 'mantenimientos', label: 'Mantenimientos' },
+    { key: 'trabajos', label: 'Trabajos en unidades' },
     { key: 'encuestas', label: 'Encuestas' },
     { key: 'archivos', label: 'Archivos' },
     { key: 'telefonos', label: 'Teléfonos' },
@@ -126,7 +128,7 @@ export const PAGE_TITLES: Record<PageKey, string> = {
   tablero: 'Tablero de control', acciones_masivas: 'Acciones masivas',
   prov_listado: 'Proveedores', prov_movimientos: 'Movimientos históricos', prov_documentos: 'Certificación de proveedores',
   reportes: 'Reportes', noticias: 'Noticias', consultas: 'Consultas', reclamos: 'Reclamos', compras: 'Compras',
-  unidades: 'Unidades', mantenimientos: 'Mantenimientos y controles',
+  unidades: 'Unidades', mantenimientos: 'Mantenimientos y controles', trabajos: 'Trabajos en unidades',
   exp_liquidaciones: 'Expensas · Liquidaciones', exp_gastos: 'Gastos pendientes', exp_provisiones: 'Provisiones',
   exp_ordenes_pago: 'Pago a proveedores', exp_cheques: 'Gestión de cheques', exp_planes: 'Planes de pago',
   exp_ctacte: 'Cuentas corrientes', sueldos: 'Sueldos', contabilidad: 'Contabilidad',

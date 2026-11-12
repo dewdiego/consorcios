@@ -107,7 +107,17 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
       sb.from('telefonos').select('nombre, categoria, telefono, notas, consorcio_id, consorcios(nombre)').eq('visible_portal', true).or(generalDe()).order('categoria').order('nombre'),
     ]);
     const conNombre = <T extends { consorcios?: unknown }>(x: T) => ({ ...x, consorcio: (x.consorcios as { nombre: string } | null)?.nombre || null, consorcios: undefined });
-    return { email, unidades, comunicados: coms, dispositivos: (subs || []).length, administracion: adm, info: (info || []).map(conNombre), telefonos: (tels || []).map(conNombre) };
+    // Trabajos en sus unidades (sólo propietario), con pagos
+    const { data: trabs } = await sb.from('trabajos_unidad').select('id, unidad_id, numero, titulo, descripcion, a_cargo, monto, fecha_aviso, fecha_realizado, estado, confirmado_at, observacion_propietario, archivo_path, proveedores(nombre), trabajos_pagos(fecha, monto, metodo)')
+      .in('unidad_id', us.filter((u) => (u.propietario_email || '').toLowerCase() === email).map((u) => u.id)).neq('estado', 'cerrado').order('numero', { ascending: false });
+    const trabajos = (trabs || []).map((t) => {
+      const u = us.find((x) => x.id === t.unidad_id);
+      const pagos = (t.trabajos_pagos as { fecha: string; monto: number; metodo: string }[] | null) || [];
+      const pagado = pagos.reduce((a, p) => a + Number(p.monto), 0);
+      return { ...t, trabajos_pagos: undefined, pagos, pagado, saldo: Math.round((Number(t.monto) - pagado) * 100) / 100, proveedor: (t.proveedores as unknown as { nombre: string } | null)?.nombre || null, proveedores: undefined,
+        unidad: u ? `UF ${u.uf} · ${u.depto}` : '', consorcio: u?.consorcios?.nombre || '', archivo_url: t.archivo_path ? sb.storage.from('archivos').getPublicUrl(t.archivo_path).data.publicUrl : null };
+    });
+    return { email, unidades, comunicados: coms, dispositivos: (subs || []).length, administracion: adm, info: (info || []).map(conNombre), telefonos: (tels || []).map(conNombre), trabajos };
 }
 
 Deno.serve(async (req) => {
@@ -147,6 +157,21 @@ Deno.serve(async (req) => {
     if (!objetivo.includes('@')) return json({ error: 'Indicá el mail del vecino.' }, 400);
     const d = await datosDe(sb, objetivo);
     return 'error' in d ? json(d, 404) : json(d);
+  }
+
+  if (accion === 'confirmar-trabajo') {
+    // El propietario confirma u observa un trabajo de su unidad
+    const id = String(body.id || ''); const ok = !!body.ok; const obs = String(body.observacion || '').trim().slice(0, 1000);
+    const { data: t } = await sb.from('trabajos_unidad').select('id, titulo, estado, unidad_id, consorcio_id, unidades(uf, depto, propietario_email, consorcios(nombre, administracion_id))').eq('id', id).maybeSingle();
+    const un = t?.unidades as unknown as { uf: number; depto: string; propietario_email: string | null; consorcios: { nombre: string; administracion_id: string | null } | null } | null;
+    if (!t || (un?.propietario_email || '').toLowerCase() !== email) return json({ error: 'Ese trabajo no corresponde a tu unidad.' }, 403);
+    if (!ok && !obs) return json({ error: 'Contanos qué observás del trabajo.' }, 400);
+    const { error } = await sb.from('trabajos_unidad').update(ok
+      ? { estado: 'confirmado', confirmado_at: new Date().toISOString(), confirmado_por: email, observacion_propietario: obs || null }
+      : { estado: 'observado', observacion_propietario: obs }).eq('id', id);
+    if (error) return json({ error: error.message }, 500);
+    await sb.from('notificaciones').insert({ tipo: ok ? 'info' : 'alerta', titulo: `${ok ? 'Trabajo confirmado' : 'Trabajo observado'} · UF ${un?.uf} ${un?.depto} · ${un?.consorcios?.nombre || ''}`, detalle: `${t.titulo}${obs ? ` — "${obs}"` : ''} (${email})`, administracion_id: un?.consorcios?.administracion_id || null });
+    return json({ ok: true });
   }
 
   if (accion === 'suscribir') {
