@@ -3,9 +3,11 @@ import { Image as ImageIcon, PenLine, Save } from 'lucide-react';
 import { supabase, type Administracion } from '@/lib/supabase';
 import { Button, Card, Input, PageHeader, Spinner } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
+import { puedeElegirVista, vistaGuardada } from '@/lib/config';
 
 export function Configuracion() {
-  const { usuario } = useApp();
+  const { usuario, email, superadmin } = useApp();
+  const elegirVista = (v: 'clasica' | 'amel') => { try { localStorage.setItem('ui_vista', v); } catch { /* noop */ } window.location.reload(); };
   const [admin, setAdmin] = useState<Administracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -88,6 +90,18 @@ export function Configuracion() {
           {campoImg('logo_web_url', 'Logo Web', 'La administración no tiene cargado un logo para la web.')}
           {campoImg('firma_url', 'Firma', 'Firma para los cupones y recibos.')}
         </Card>
+
+        {puedeElegirVista(email, superadmin) && (
+          <Card className="p-5">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Apariencia</p>
+            <p className="text-xs text-slate-400 mb-3">Cómo se ve el menú en este dispositivo. El resto de los usuarios ve siempre la vista agrupada.</p>
+            <div className="flex gap-2">
+              {([['amel', 'Agrupada (por defecto)'], ['clasica', 'Clásica']] as const).map(([v, label]) => (
+                <button key={v} onClick={() => elegirVista(v)} className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${vistaGuardada() === v ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{label}</button>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

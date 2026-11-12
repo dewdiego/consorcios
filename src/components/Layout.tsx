@@ -2,10 +2,11 @@ import { type ReactNode, useState } from 'react';
 import {
   Archive, BarChart3, Bell, Building2, CalendarDays, ChevronDown, ChevronRight, ClipboardList,
   FileBarChart, LayoutDashboard, LogOut, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
-  Truck, Users, Vote, WalletCards, Wrench, Zap, LayoutGrid, Hammer
+  Truck, Users, Vote, WalletCards, Wrench, Zap, Hammer
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { LogoMarca, LogoNombre } from '@/components/Logo';
+import { puedeElegirVista, vistaGuardada } from '@/lib/config';
 
 export type PageKey =
   | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'envios_mail' | 'portal' | 'usuarios' | 'export_datos'
@@ -74,23 +75,19 @@ const NAV: NavEntry[] = [
 ];
 
 /*
-  Vista "Amel": misma app, menú agrupado por tarea (Edificios / Expensas / Pagos / Personal / Contabilidad / Administración)
-  y estética propia (barra lateral clara con acento verde, cabecera blanca). Se elige desde el botón de vista en la cabecera
-  y queda guardada en este navegador. La vista "Clásica" es la que replica el orden de Octavo.
+  Vista agrupada (la de por defecto): misma app, menú agrupado por tarea y estética propia (barra lateral clara, cabecera blanca).
+  La vista "Clásica" (NAV, arriba) replica el orden de Octavo y sólo la eligen los habilitados desde Configuración → Apariencia.
 */
 const NAV_AMEL: NavEntry[] = [
-  { label: 'Tablero', icon: <LayoutDashboard size={17} />, key: 'tablero' },
+  { label: 'Inicio', icon: <LayoutDashboard size={17} />, children: [
+    { key: 'tablero', label: 'Tablero' },
+    { key: 'calendario', label: 'Agenda' },
+  ] },
   { label: 'Edificios', icon: <Building2 size={17} />, children: [
     { key: 'consorcios', label: 'Consorcios' },
     { key: 'unidades', label: 'Unidades y propietarios' },
-    { key: 'noticias', label: 'Comunicados' },
-    { key: 'reclamos', label: 'Reclamos' },
-    { key: 'consultas', label: 'Consultas' },
-    { key: 'mantenimientos', label: 'Mantenimientos' },
-    { key: 'trabajos', label: 'Trabajos en unidades' },
-    { key: 'encuestas', label: 'Encuestas' },
     { key: 'archivos', label: 'Archivos' },
-    { key: 'telefonos', label: 'Teléfonos' },
+    { key: 'telefonos', label: 'Teléfonos útiles' },
   ] },
   { label: 'Expensas', icon: <Receipt size={17} />, porConsorcio: true, children: [
     { key: 'exp_liquidaciones', label: 'Liquidaciones' },
@@ -100,23 +97,34 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'exp_planes', label: 'Planes de pago' },
     { key: 'acciones_masivas', label: 'Acciones masivas' },
   ] },
-  { label: 'Pagos', icon: <Truck size={17} />, children: [
+  { label: 'Proveedores y pagos', icon: <Truck size={17} />, children: [
     { key: 'prov_listado', label: 'Proveedores' },
     { key: 'exp_ordenes_pago', label: 'Órdenes de pago' },
     { key: 'exp_cheques', label: 'Cheques' },
     { key: 'compras', label: 'Compras y cotizaciones' },
     { key: 'prov_movimientos', label: 'Movimientos históricos' },
-    { key: 'prov_documentos', label: 'Documentación de proveedores' },
+    { key: 'prov_documentos', label: 'Documentación' },
   ] },
-  { label: 'Personal', icon: <WalletCards size={17} />, key: 'sueldos', porConsorcio: true },
-  { label: 'Contabilidad', icon: <BarChart3 size={17} />, key: 'contabilidad', porConsorcio: true },
-  { label: 'Agenda', icon: <CalendarDays size={17} />, key: 'calendario' },
-  { label: 'Reportes', icon: <FileBarChart size={17} />, key: 'reportes' },
+  { label: 'Mantenimiento', icon: <Wrench size={17} />, porConsorcio: true, children: [
+    { key: 'reclamos', label: 'Reclamos' },
+    { key: 'mantenimientos', label: 'Mantenimientos' },
+    { key: 'trabajos', label: 'Trabajos en unidades' },
+  ] },
+  { label: 'Comunicación', icon: <Megaphone size={17} />, children: [
+    { key: 'noticias', label: 'Comunicados' },
+    { key: 'consultas', label: 'Consultas' },
+    { key: 'encuestas', label: 'Encuestas' },
+    { key: 'portal', label: 'Portal de vecinos' },
+    { key: 'envios_mail', label: 'Envíos de mail' },
+  ] },
+  { label: 'Contabilidad y sueldos', icon: <BarChart3 size={17} />, children: [
+    { key: 'contabilidad', label: 'Contabilidad' },
+    { key: 'sueldos', label: 'Sueldos' },
+    { key: 'reportes', label: 'Reportes' },
+  ] },
   { label: 'Administración', icon: <Settings size={17} />, children: [
     { key: 'config', label: 'Mi administración' },
     { key: 'usuarios', label: 'Usuarios' },
-    { key: 'portal', label: 'Portal de vecinos' },
-    { key: 'envios_mail', label: 'Envíos de mail' },
     { key: 'notificaciones', label: 'Notificaciones' },
     { key: 'mis_facturas', label: 'Mis facturas' },
     { key: 'export_datos', label: 'Exportar datos' },
@@ -142,7 +150,7 @@ export const PAGES_POR_CONSORCIO = new Set<PageKey>(
 );
 
 export function Layout({ page, onNavigate, children }: { page: PageKey; onNavigate: (p: PageKey) => void; children: ReactNode }) {
-  const { consorcios, consorcio, setConsorcioId, usuario, cerrarSesion, superadmin, administraciones, administracionId, verTodo, cambiarAdministracion } = useApp();
+  const { consorcios, consorcio, setConsorcioId, usuario, email, cerrarSesion, superadmin, administraciones, administracionId, verTodo, cambiarAdministracion } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>(() => NAV.filter((e) => e.children?.some((c) => c.key === page)).map((e) => e.label));
 
@@ -150,9 +158,8 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
     setExpanded((prev) => (prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]));
 
   const go = (p: PageKey) => { onNavigate(p); setSidebarOpen(false); };
-  const [vista, setVista] = useState<'clasica' | 'amel'>(() => { try { return localStorage.getItem('ui_vista') === 'amel' ? 'amel' : 'clasica'; } catch { return 'clasica'; } });
-  const cambiarVista = () => { const v = vista === 'amel' ? 'clasica' : 'amel'; setVista(v); try { localStorage.setItem('ui_vista', v); } catch { /* noop */ } };
-  const amel = vista === 'amel';
+  // Por defecto la vista agrupada; la clásica sólo si el usuario está habilitado y la eligió en Configuración
+  const amel = !(puedeElegirVista(email, superadmin) && vistaGuardada() === 'clasica');
   const hb = amel ? 'hover:bg-slate-100' : 'hover:bg-white/15';
   const pill = amel ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/15 hover:bg-white/25 text-white';
   const nav = amel ? NAV_AMEL : NAV;
@@ -226,7 +233,6 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
               </select>
             </div>
             <div className="hidden sm:block flex-1" />
-            <button onClick={cambiarVista} className={`p-2 rounded-full shrink-0 ${hb}`} title={amel ? 'Cambiar a vista clásica' : 'Cambiar a vista alternativa'}><LayoutGrid size={18} /></button>
             <button onClick={() => go('notificaciones')} className={`p-2 rounded-full shrink-0 ${hb}`} title="Notificaciones">
               <Bell size={18} />
             </button>
