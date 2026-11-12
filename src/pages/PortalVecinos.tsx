@@ -24,6 +24,7 @@ type Datos = {
   comunicados: { id: string; titulo: string; contenido: string; fecha_publicacion: string; consorcio: string; adjunto_url: string | null }[];
   info: { titulo: string; contenido: string; consorcio: string | null }[];
   telefonos: { nombre: string; categoria: string; telefono: string; notas: string | null; consorcio: string | null }[];
+  trabajos?: { id: string; numero: number; titulo: string; descripcion: string | null; monto: number; estado: string; fecha_realizado: string | null; pagado: number; saldo: number; proveedor: string | null; observacion_propietario: string | null }[];
 };
 
 export function PortalVecinos() {
@@ -34,7 +35,7 @@ export function PortalVecinos() {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
-  const [tabPortal, setTabPortal] = useState<'expensas' | 'comunicados' | 'info'>('expensas');
+  const [tabPortal, setTabPortal] = useState<'expensas' | 'comunicados' | 'trabajos' | 'info'>('expensas');
 
   const [infos, setInfos] = useState<PortalInfo[]>([]);
   const [telefonos, setTelefonos] = useState<(Telefono & { visible_portal: boolean; consorcios: { nombre: string } | null })[]>([]);
@@ -136,7 +137,7 @@ export function PortalVecinos() {
             <div className="mx-auto w-[390px] max-w-full rounded-[28px] border-8 border-slate-800 bg-slate-100 overflow-hidden shadow-xl text-[13px]">
               <div className="bg-teal-500 text-white px-4 py-3 flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-white/20" /><div><div className="font-bold">Grupo Amel</div><div className="text-[10px] opacity-90">{datos.email}</div></div></div>
               <div className="flex gap-1.5 p-3 pb-0">
-                {(['expensas', 'comunicados', 'info'] as const).map((t) => <button key={t} onClick={() => setTabPortal(t)} className={`flex-1 rounded-lg py-2 text-xs font-semibold border ${tabPortal === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>{t === 'info' ? 'Info útil' : t[0].toUpperCase() + t.slice(1)}</button>)}
+                {(['expensas', 'comunicados', 'trabajos', 'info'] as const).map((t) => <button key={t} onClick={() => setTabPortal(t)} className={`flex-1 rounded-lg py-2 text-xs font-semibold border ${tabPortal === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>{t === 'info' ? 'Info útil' : t[0].toUpperCase() + t.slice(1)}</button>)}
               </div>
               <div className="p-3 space-y-3 max-h-[600px] overflow-y-auto">
                 {tabPortal === 'expensas' && datos.unidades.map((u) => {
@@ -161,6 +162,16 @@ export function PortalVecinos() {
                   );
                 })}
                 {tabPortal === 'comunicados' && (datos.comunicados.length === 0 ? <div className="bg-white rounded-xl border p-4 text-center text-slate-400">No hay comunicados por ahora.</div> : <div className="bg-white rounded-xl border border-slate-200 p-3 divide-y divide-slate-100">{datos.comunicados.map((c) => <div key={c.id} className="py-2"><div className="font-bold text-slate-800">{c.titulo}</div><div className="text-[11px] text-slate-400">{fmtDate(c.fecha_publicacion)} · {c.consorcio}</div><div className="whitespace-pre-wrap text-slate-700 mt-1">{c.contenido}</div>{c.adjunto_url && <a href={c.adjunto_url} target="_blank" rel="noopener" className="text-teal-600 text-xs font-semibold">Ver adjunto</a>}</div>)}</div>)}
+                {tabPortal === 'trabajos' && ((datos.trabajos || []).length === 0 ? <div className="bg-white rounded-xl border p-4 text-center text-slate-400">No hay trabajos en tu unidad.</div> : (datos.trabajos || []).map((t) => (
+                  <div key={t.id} className="bg-white rounded-xl border border-slate-200 p-3">
+                    <div className="flex justify-between gap-2"><div className="font-bold text-slate-800">{t.titulo}</div><span className="text-[10px] font-semibold uppercase text-slate-500">{t.estado}</span></div>
+                    <div className="text-[11px] text-slate-400">{t.proveedor || ''}{t.fecha_realizado ? ` · ${fmtDate(t.fecha_realizado)}` : ''}</div>
+                    {t.descripcion && <div className="whitespace-pre-wrap text-slate-700 mt-1">{t.descripcion}</div>}
+                    {Number(t.monto) > 0 && <div className="flex justify-between text-xs mt-2 pt-2 border-t border-slate-100"><span>Importe {fmtMoney(Number(t.monto))} · Pagado {fmtMoney(Number(t.pagado))}</span><b className={t.saldo > 0.01 ? 'text-red-500' : 'text-emerald-600'}>Saldo {fmtMoney(Number(t.saldo))}</b></div>}
+                    {t.observacion_propietario && <div className="text-xs text-red-500 mt-1">Observación: {t.observacion_propietario}</div>}
+                    {(t.estado === 'avisado' || t.estado === 'realizado') && <div className="text-[11px] text-slate-400 mt-2">El vecino ve acá los botones "Confirmo" y "Tengo una observación".</div>}
+                  </div>
+                )))}
                 {tabPortal === 'info' && <>
                   <div className="bg-white rounded-xl border border-slate-200 p-3"><div className="font-bold text-slate-800">{datos.administracion?.nombre}</div>
                     {[['Teléfono', datos.administracion?.telefono], ['Mail', datos.administracion?.email], ['Dirección', datos.administracion?.direccion], ['Atención', datos.administracion?.horario_atencion]].filter(([, v]) => v).map(([k, v]) => <div key={k} className="flex justify-between text-xs py-1 border-t border-slate-100"><span className="text-slate-500">{k}</span><span>{v}</span></div>)}</div>
