@@ -186,7 +186,7 @@ export function Noticias() {
           comunicado_id: c.id, consorcio_id: u.consorcio_id, unidad_id: u.id, email: d.email, nombre: d.nombre, canal: 'mail',
           asunto: `${c.titulo} - ${consorcioNombre}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155">
-  <div style="background:#14b8a6;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+  <div style="background:#1f6fd0;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
     <div style="font-size:12px;opacity:.9;text-transform:uppercase">Comunicado · ${esc(consorcioNombre)}</div>
     <div style="font-size:18px;font-weight:700;margin-top:2px">${esc(c.titulo)}</div>
   </div>

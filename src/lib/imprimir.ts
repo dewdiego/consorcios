@@ -33,7 +33,7 @@ export function imprimirHtml(titulo: string, cuerpo: string, extraCss = '', opci
   .firma div { width: 45%; border-top: 1px solid #334155; padding-top: 6px; text-align: center; font-size: 11px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
   .btns { position: fixed; top: 10px; right: 10px; display: flex; gap: 8px; z-index: 50; }
-  .btn { background: #14b8a6; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .btn { background: #1f6fd0; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
   .btn.sec2 { background: #1e2a4a; } .btn:disabled { opacity: .6; }
   .aviso { position: fixed; top: 50px; right: 10px; background: #1e293b; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; display: none; z-index: 50; }
   @media print { .btns, .aviso { display: none !important; } body { padding: 0; } }

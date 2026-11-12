@@ -29,7 +29,7 @@ function armarHtml(p: {
   const fila = (k: string, v: string, b = false) =>
     `<tr><td style="padding:6px 12px;color:#64748b">${k}</td><td style="padding:6px 12px;text-align:right;${b ? 'font-weight:700;color:#0f172a' : 'color:#334155'}">${v}</td></tr>`;
   return `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155">
-  <div style="background:#14b8a6;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+  <div style="background:#1f6fd0;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
     <div style="font-size:18px;font-weight:700">Expensas ${esc(p.periodo)}</div>
     <div style="font-size:13px;opacity:.9">${esc(p.consorcio)} · UF ${p.uf} (${esc(p.depto)})</div>
   </div>

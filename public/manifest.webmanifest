@@ -1,12 +1,12 @@
 {
-  "name": "Grupo Amel · Administración",
-  "short_name": "Amel Admin",
-  "description": "Administración de consorcios de Grupo Amel",
+  "name": "Gestión Íntegra 4.0",
+  "short_name": "Gestión Íntegra",
+  "description": "Gestión Íntegra 4.0 · Administración de consorcios",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f1f5f9",
-  "theme_color": "#1e2a4a",
+  "theme_color": "#12284f",
   "lang": "es",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },

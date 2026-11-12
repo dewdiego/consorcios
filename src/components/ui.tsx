@@ -235,7 +235,7 @@ export function StatCircle({ pct, label, sub }: { pct: number; label: string; su
   const deg = clamped * 3.6;
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="relative w-24 h-24 rounded-full" style={{ background: `conic-gradient(#14b8a6 ${deg}deg, #e2e8f0 ${deg}deg)` }}>
+      <div className="relative w-24 h-24 rounded-full" style={{ background: `conic-gradient(#1f6fd0 ${deg}deg, #e2e8f0 ${deg}deg)` }}>
         <div className="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
           <span className="text-lg font-bold text-slate-700">{Math.round(clamped)}%</span>
         </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Building2, LogIn } from 'lucide-react';
+import { LogoMarca, LogoNombre } from '@/components/Logo';
 import { supabase } from '@/lib/supabase';
 import { Button, Input } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
@@ -27,14 +28,11 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e2a4a] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f2247] via-[#1b4a9e] to-[#2bb8b4] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
         <div className="flex items-center gap-2 mb-6">
-          <Building2 size={26} className="text-teal-500" />
-          <div>
-            <p className="font-bold text-slate-800 leading-tight">Consorcios</p>
-            <p className="text-[11px] text-slate-400">Panel de administración</p>
-          </div>
+          <LogoMarca size={40} />
+          <LogoNombre />
         </div>
         <form onSubmit={(e) => { e.preventDefault(); entrar(); }} className="space-y-4">
           <Input label="Mail" type="email" value={email} onChange={setEmail} required />
@@ -51,7 +49,7 @@ export function Login() {
 /** Pantalla para alguien logueado que no es operador (por ejemplo, un vecino que entró con su cuenta del portal). */
 export function SinPermiso({ email }: { email: string }) {
   return (
-    <div className="min-h-screen bg-[#1e2a4a] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f2247] via-[#1b4a9e] to-[#2bb8b4] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
         <Building2 size={30} className="text-slate-300 mx-auto mb-3" />
         <p className="font-semibold text-slate-800">Sin acceso</p>
@@ -80,9 +78,9 @@ export function NuevaContrasena() {
     setElegirContrasena(false);
   };
   return (
-    <div className="min-h-screen bg-[#1e2a4a] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f2247] via-[#1b4a9e] to-[#2bb8b4] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
-        <div className="flex items-center gap-2 mb-2"><Building2 size={26} className="text-teal-500" /><p className="font-bold text-slate-800">Elegí tu contraseña</p></div>
+        <div className="flex items-center gap-2 mb-2"><LogoMarca size={30} /><p className="font-bold text-slate-800">Elegí tu contraseña</p></div>
         <p className="text-sm text-slate-500 mb-5">Para <b>{email}</b>. Con esta contraseña vas a entrar de ahora en más.</p>
         <form onSubmit={(e) => { e.preventDefault(); guardar(); }} className="space-y-4">
           <Input label="Contraseña nueva" type="password" value={p1} onChange={setP1} required />

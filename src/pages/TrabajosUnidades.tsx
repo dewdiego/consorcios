@@ -100,7 +100,7 @@ export function TrabajosUnidades() {
     const conApp = await emailsConApp(supabase);
     const estadoTxt = t.estado === 'avisado' ? 'programado' : 'realizado';
     const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#334155">
-      <h2 style="color:#0d9488;margin:0 0 6px">${escHtml(t.titulo)}</h2>
+      <h2 style="color:#1b4a9e;margin:0 0 6px">${escHtml(t.titulo)}</h2>
       <p style="margin:0 0 12px;color:#64748b">${escHtml(consorcio?.nombre)} · UF ${u.uf} ${escHtml(u.depto)}</p>
       <p>Le informamos que se encuentra <b>${estadoTxt}</b> el siguiente trabajo en su unidad:</p>
       ${t.descripcion ? `<p style="white-space:pre-wrap;background:#f8fafc;padding:10px;border-radius:8px">${escHtml(t.descripcion)}</p>` : ''}
@@ -111,7 +111,7 @@ export function TrabajosUnidades() {
         ${Number(t.monto) > 0 ? `<tr><td style="padding:3px 10px 3px 0;color:#64748b">Importe a su cargo</td><td><b>${fmtMoney(Number(t.monto))}</b>${saldo(t) < Number(t.monto) ? ` (pagado ${fmtMoney(pagado(t))}, saldo ${fmtMoney(saldo(t))})` : ''}</td></tr>` : ''}
       </table>
       <p style="margin-top:16px">Por favor, <b>confirmá el trabajo</b> desde el portal, o dejanos tu observación:</p>
-      <a href="${PORTAL_URL}" style="display:inline-block;background:#14b8a6;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Entrar al portal</a>
+      <a href="${PORTAL_URL}" style="display:inline-block;background:#1f6fd0;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Entrar al portal</a>
       <p style="font-size:12px;color:#94a3b8;margin-top:20px">${escHtml(consorcio?.nombre)} · Administración</p></div>`;
     const filas: Record<string, unknown>[] = [{
       consorcio_id: t.consorcio_id, unidad_id: t.unidad_id, trabajo_id: t.id, email, nombre: u.propietario, canal: 'mail',

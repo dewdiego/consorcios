@@ -201,7 +201,7 @@ export function Liquidaciones() {
                         <p className="mt-1">2do vencimiento</p><p className="font-semibold text-slate-700 text-sm">{fmtDate(l!.fecha_vencimiento_2)}</p>
                       </div>
                     ) : (
-                      <div className="relative w-20 h-20 rounded-full shrink-0" style={{ background: `conic-gradient(#14b8a6 ${Math.min(100, pct) * 3.6}deg, #e2e8f0 0deg)` }}>
+                      <div className="relative w-20 h-20 rounded-full shrink-0" style={{ background: `conic-gradient(#1f6fd0 ${Math.min(100, pct) * 3.6}deg, #e2e8f0 0deg)` }}>
                         <div className="absolute inset-1.5 bg-white rounded-full flex flex-col items-center justify-center">
                           <span className="text-sm font-bold text-slate-700">{Math.round(pct)}%</span>
                           <span className="text-[9px] text-slate-400">Cobranza</span>
