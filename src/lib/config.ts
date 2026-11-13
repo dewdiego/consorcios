@@ -1,12 +1,12 @@
 // URL pública del portal del propietario (PWA). Es adonde llevan las notificaciones push.
-export const PORTAL_URL = 'https://grupoamel.com.ar/portal/';
+export const PORTAL_URL = 'https://consorcios.gestionintegra.com.ar/';
 
 /*
   Vista del menú: por defecto todos ven la AGRUPADA. La vista clásica (tipo Octavo Piso) sólo la pueden elegir,
   desde Configuración → Apariencia, el superadmin y los mails de esta lista (en minúscula).
 */
 export const VISTA_CLASICA_EMAILS: string[] = [
-  // 'am.andreamelendrez@gmail.com',
+  'am.andreamelendrez@gmail.com',
 ];
 export const puedeElegirVista = (email: string, superadmin: boolean) => superadmin || VISTA_CLASICA_EMAILS.includes((email || '').toLowerCase());
 let vistaEnMemoria: 'clasica' | 'amel' | null = null;
