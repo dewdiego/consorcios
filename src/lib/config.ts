@@ -1,6 +1,10 @@
 // URL pública del portal del propietario (PWA). Es adonde llevan las notificaciones push.
 export const PORTAL_URL = 'https://consorcios.gestionintegra.com.ar/';
 
+/** Versión de esta publicación (fecha y hora en que se armó). Se muestra en el ingreso y al pie del menú. */
+declare const __APP_VERSION__: string;
+export const VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'local';
+
 /*
   Vista del menú: por defecto todos ven la AGRUPADA. La vista clásica (tipo Octavo Piso) sólo la pueden elegir,
   desde Configuración → Apariencia, el superadmin y los mails de esta lista (en minúscula).

@@ -4,6 +4,7 @@ import { LogoMarca, LogoNombre } from '@/components/Logo';
 import { supabase } from '@/lib/supabase';
 import { Button, Input } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
+import { VERSION } from '@/lib/config';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -41,6 +42,7 @@ export function Login() {
           <Button type="submit" disabled={busy} className="w-full"><LogIn size={15} /> {busy ? 'Ingresando…' : 'Ingresar'}</Button>
         </form>
         <button onClick={recuperar} className="text-xs text-slate-400 hover:text-teal-600 mt-4 w-full text-center" disabled={busy}>Olvidé mi contraseña</button>
+        <p className="text-[10px] text-slate-300 mt-3 text-center">Versión {VERSION}</p>
       </div>
     </div>
   );

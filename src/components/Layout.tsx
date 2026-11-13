@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { LogoMarca, LogoNombre } from '@/components/Logo';
-import { alCambiarVista, puedeElegirVista, vistaGuardada } from '@/lib/config';
+import { alCambiarVista, puedeElegirVista, vistaGuardada, VERSION } from '@/lib/config';
 
 export type PageKey =
   | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'envios_mail' | 'portal' | 'usuarios' | 'export_datos'
@@ -177,7 +177,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
       <aside className={`fixed lg:sticky top-0 h-screen w-64 flex flex-col z-40 transition-transform overflow-y-auto ${amel ? 'bg-[#eef3fb] text-slate-700 border-r border-[#d6e2f5]' : 'bg-[#12284f] text-slate-200'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className={`px-5 py-4 flex items-center gap-2 ${amel ? 'bg-gradient-to-br from-[#12284f] to-[#1b4a9e]' : 'border-b border-white/10'}`}>
           <LogoMarca size={34} claro />
-          <LogoNombre claro />
+          <LogoNombre claro sub="Administración de consorcios" />
         </div>
         <nav className={`flex-1 py-3 ${amel ? 'px-3 space-y-0.5' : ''}`}>
           {nav.map((entry) => {
@@ -215,6 +215,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
             );
           })}
         </nav>
+        <p className={`px-5 py-2 text-[10px] ${amel ? 'text-slate-400' : 'text-slate-500'}`}>Versión {VERSION}</p>
       </aside>
 
       {/* Main */}
