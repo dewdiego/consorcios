@@ -3,6 +3,7 @@ import { AppProvider, useApp } from '@/context/AppContext';
 import { Login, SinPermiso, NuevaContrasena } from '@/pages/Login';
 import { Spinner } from '@/components/ui';
 import { Layout, type PageKey } from '@/components/Layout';
+import { InstalarApp } from '@/components/InstalarApp';
 import { Tablero } from '@/pages/Tablero';
 import { Configuracion } from '@/pages/Configuracion';
 import { Consorcios } from '@/pages/Consorcios';
@@ -90,5 +91,5 @@ function Shell() {
 }
 
 export default function App() {
-  return <AppProvider><Shell /></AppProvider>;
+  return <AppProvider><Shell /><InstalarApp /></AppProvider>;
 }
