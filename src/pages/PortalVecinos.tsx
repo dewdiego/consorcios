@@ -135,7 +135,7 @@ export function PortalVecinos() {
           </Card>
           {datos && (
             <div className="mx-auto w-[390px] max-w-full rounded-[28px] border-8 border-slate-800 bg-slate-100 overflow-hidden shadow-xl text-[13px]">
-              <div className="bg-teal-500 text-white px-4 py-3 flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-white/20" /><div><div className="font-bold">Grupo Amel</div><div className="text-[10px] opacity-90">{datos.email}</div></div></div>
+              <div className="bg-teal-500 text-white px-4 py-3 flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-white/20" /><div><div className="font-bold">Gestión Íntegra 4.0</div><div className="text-[10px] opacity-90">{datos.email}</div></div></div>
               <div className="flex gap-1.5 p-3 pb-0">
                 {(['expensas', 'comunicados', 'trabajos', 'info'] as const).map((t) => <button key={t} onClick={() => setTabPortal(t)} className={`flex-1 rounded-lg py-2 text-xs font-semibold border ${tabPortal === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>{t === 'info' ? 'Info útil' : t[0].toUpperCase() + t.slice(1)}</button>)}
               </div>
@@ -242,7 +242,7 @@ export function PortalVecinos() {
       <Modal open={infoModal} onClose={() => setInfoModal(false)} title={infoEdit ? 'Editar dato útil' : 'Nuevo dato útil'}>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2"><Input label="Título" value={infoForm.titulo} onChange={(v) => setInfoForm({ ...infoForm, titulo: v })} placeholder="Cómo pagar las expensas" required /></div>
-          <div className="col-span-2"><Textarea label="Contenido" value={infoForm.contenido} onChange={(v) => setInfoForm({ ...infoForm, contenido: v })} rows={5} placeholder={'Transferencia al CBU 000… (alias AMEL.CONSORCIO).\nEnviar el comprobante a expensas@…'} /></div>
+          <div className="col-span-2"><Textarea label="Contenido" value={infoForm.contenido} onChange={(v) => setInfoForm({ ...infoForm, contenido: v })} rows={5} placeholder={'Transferencia al CBU 000… (alias MI.CONSORCIO).\nEnviar el comprobante a expensas@…'} /></div>
           <Select label="Para" value={infoForm.consorcio_id} onChange={(v) => setInfoForm({ ...infoForm, consorcio_id: v })} placeholder="Todos los consorcios" options={consorcios.map((c: Consorcio) => ({ value: c.id, label: c.nombre }))} />
           <Input label="Orden" type="number" value={infoForm.orden} onChange={(v) => setInfoForm({ ...infoForm, orden: v })} />
           <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" className="rounded" checked={infoForm.activo} onChange={(e) => setInfoForm({ ...infoForm, activo: e.target.checked })} /> Visible en el portal</label>
