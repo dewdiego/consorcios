@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   Archive, BarChart3, Bell, Building2, CalendarDays, ChevronDown, ChevronRight, ClipboardList,
   FileBarChart, LayoutDashboard, LogOut, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { LogoMarca, LogoNombre } from '@/components/Logo';
-import { puedeElegirVista, vistaGuardada } from '@/lib/config';
+import { alCambiarVista, puedeElegirVista, vistaGuardada } from '@/lib/config';
 
 export type PageKey =
   | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'envios_mail' | 'portal' | 'usuarios' | 'export_datos'
@@ -159,9 +159,11 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
 
   const go = (p: PageKey) => { onNavigate(p); setSidebarOpen(false); };
   // Por defecto la vista agrupada; la clásica sólo si el usuario está habilitado y la eligió en Configuración
+  const [, redibujar] = useState(0);
+  useEffect(() => alCambiarVista(() => redibujar((n) => n + 1)), []);
   const amel = !(puedeElegirVista(email, superadmin) && vistaGuardada() === 'clasica');
-  const hb = amel ? 'hover:bg-slate-100' : 'hover:bg-white/15';
-  const pill = amel ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/15 hover:bg-white/25 text-white';
+  const hb = 'hover:bg-white/15';
+  const pill = 'bg-white/15 hover:bg-white/25 text-white';
   const nav = amel ? NAV_AMEL : NAV;
   // Grupo abierto automáticamente según la página activa
   const grupoActivo = nav.find((e) => e.children?.some((c) => c.key === page))?.label;
@@ -172,10 +174,10 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
     <div className="min-h-screen bg-slate-50 flex max-w-[100vw] overflow-x-hidden">
       {/* Sidebar */}
       {sidebarOpen && <div className="fixed inset-0 bg-slate-900/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`fixed lg:sticky top-0 h-screen w-64 flex flex-col z-40 transition-transform overflow-y-auto ${amel ? 'bg-white text-slate-700 border-r border-slate-200' : 'bg-[#12284f] text-slate-200'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        <div className={`px-5 py-4 flex items-center gap-2 ${amel ? 'border-b border-slate-100' : 'border-b border-white/10'}`}>
-          <LogoMarca size={34} claro={!amel} />
-          <LogoNombre claro={!amel} sub="Administración de consorcios" />
+      <aside className={`fixed lg:sticky top-0 h-screen w-64 flex flex-col z-40 transition-transform overflow-y-auto ${amel ? 'bg-[#eef3fb] text-slate-700 border-r border-[#d6e2f5]' : 'bg-[#12284f] text-slate-200'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        <div className={`px-5 py-4 flex items-center gap-2 ${amel ? 'bg-gradient-to-br from-[#12284f] to-[#1b4a9e]' : 'border-b border-white/10'}`}>
+          <LogoMarca size={34} claro />
+          <LogoNombre claro sub="Administración de consorcios" />
         </div>
         <nav className={`flex-1 py-3 ${amel ? 'px-3 space-y-0.5' : ''}`}>
           {nav.map((entry) => {
@@ -185,7 +187,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
               return (
                 <button key={entry.label} onClick={() => go(entry.key!)}
                   className={amel
-                    ? `w-full flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-colors ${active ? 'bg-teal-50 text-teal-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'}`
+                    ? `w-full flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-colors ${active ? 'bg-teal-600 text-white font-semibold shadow-sm' : 'text-slate-700 hover:bg-white'}`
                     : `w-full flex items-center gap-3 px-5 py-2 text-[13px] transition-colors ${active ? 'bg-teal-500/15 text-white border-l-2 border-teal-400' : 'text-slate-300 hover:bg-white/5 border-l-2 border-transparent'}`}>
                   {entry.icon}<span>{entry.label}</span>
                 </button>
@@ -196,7 +198,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
               <div key={entry.label}>
                 <button onClick={() => toggle(entry.label)}
                   className={amel
-                    ? `w-full flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-colors ${active ? 'text-teal-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'}`
+                    ? `w-full flex items-center gap-3 px-3 py-2 text-[13px] rounded-lg transition-colors ${active ? 'text-teal-800 font-semibold [&>svg:first-child]:text-teal-600' : 'text-slate-700 hover:bg-white [&>svg:first-child]:text-teal-500'}`
                     : `w-full flex items-center gap-3 px-5 py-2 text-[13px] transition-colors ${active ? 'text-white' : 'text-slate-300 hover:bg-white/5'}`}>
                   {entry.icon}<span className="flex-1 text-left">{entry.label}</span>
                   {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -204,7 +206,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
                 {open && entry.children!.map((c) => (
                   <button key={c.key} onClick={() => go(c.key)}
                     className={amel
-                      ? `w-full flex items-center gap-2 pl-10 pr-3 py-1.5 text-[13px] rounded-lg transition-colors ${c.key === page ? 'bg-teal-50 text-teal-700 font-semibold' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`
+                      ? `w-full flex items-center gap-2 pl-10 pr-3 py-1.5 text-[13px] rounded-lg transition-colors ${c.key === page ? 'bg-teal-600 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`
                       : `w-full flex items-center gap-2 pl-12 pr-4 py-1.5 text-[13px] transition-colors ${c.key === page ? 'text-teal-300 font-medium' : 'text-slate-400 hover:text-slate-200'}`}>
                     {c.label}
                   </button>
@@ -218,7 +220,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Topbar */}
-        <header className={`sticky top-0 z-20 shadow ${amel ? 'bg-white text-slate-700 border-b border-slate-200' : 'bg-gradient-to-r from-[#1b4a9e] via-[#1f6fd0] to-[#2bb8b4] text-white'}`}>
+        <header className={`sticky top-0 z-20 shadow text-white ${amel ? 'bg-gradient-to-r from-[#173a7a] to-[#1f6fd0] border-b-2 border-[#2bb8b4]' : 'bg-gradient-to-r from-[#1b4a9e] via-[#1f6fd0] to-[#2bb8b4]'}`}>
           <div className="flex items-center gap-1.5 sm:gap-3 px-3 sm:px-4 py-2.5 overflow-hidden">
             <button className={`lg:hidden p-1.5 rounded shrink-0 ${hb}`} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
             {/* Selector de consorcio activo (se achica en el celular) */}
@@ -227,7 +229,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
               <select
                 value={consorcio?.id || ''}
                 onChange={(e) => setConsorcioId(e.target.value || null)}
-                className={`text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 w-full sm:w-auto sm:max-w-[260px] min-w-0 truncate ${amel ? 'bg-slate-100 text-slate-800 border border-slate-200 focus:ring-teal-300 font-medium' : 'bg-teal-600/60 text-white border border-white/20 focus:ring-white/40'}`}>
+                className={`text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 w-full sm:w-auto sm:max-w-[260px] min-w-0 truncate bg-white/15 text-white border border-white/25 focus:ring-white/40 [&>option]:text-slate-800 ${amel ? 'font-medium' : ''}`}>
                 <option value="">— Elegir consorcio —</option>
                 {consorcios.map((c) => <option key={c.id} value={c.id}>{c.nombre}{c.activo ? '' : ' (inactivo)'}</option>)}
               </select>
@@ -247,7 +249,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
               <Settings size={18} />
             </button>
             <button onClick={() => go('usuarios')} className={`hidden sm:flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full text-sm shrink-0 ${pill}`} title="Usuarios">
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center ${amel ? 'bg-teal-500 text-white' : 'bg-white/25'}`}><Users size={13} /></span>
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center bg-white/25`}><Users size={13} /></span>
               <span className="hidden sm:inline max-w-[140px] truncate">{usuario}</span>
             </button>
             <button onClick={cerrarSesion} className={`p-2 rounded-full shrink-0 ${hb}`} title="Cerrar sesión"><LogOut size={18} /></button>

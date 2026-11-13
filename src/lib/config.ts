@@ -9,7 +9,19 @@ export const VISTA_CLASICA_EMAILS: string[] = [
   // 'am.andreamelendrez@gmail.com',
 ];
 export const puedeElegirVista = (email: string, superadmin: boolean) => superadmin || VISTA_CLASICA_EMAILS.includes((email || '').toLowerCase());
-export const vistaGuardada = (): 'clasica' | 'amel' => { try { return localStorage.getItem('ui_vista') === 'clasica' ? 'clasica' : 'amel'; } catch { return 'amel'; } };
+let vistaEnMemoria: 'clasica' | 'amel' | null = null;
+export const vistaGuardada = (): 'clasica' | 'amel' => {
+  if (vistaEnMemoria) return vistaEnMemoria;
+  try { return localStorage.getItem('ui_vista') === 'clasica' ? 'clasica' : 'amel'; } catch { return 'amel'; }
+};
+/** Cambia la vista al instante (sin recargar) y la deja guardada en este dispositivo. */
+export const elegirVista = (v: 'clasica' | 'amel') => {
+  vistaEnMemoria = v;
+  try { localStorage.setItem('ui_vista', v); } catch { /* noop */ }
+  window.dispatchEvent(new Event('ui_vista'));
+};
+/** Para que las pantallas se redibujen cuando cambia la vista. */
+export const alCambiarVista = (fn: () => void) => { window.addEventListener('ui_vista', fn); return () => window.removeEventListener('ui_vista', fn); };
 
 /** Mails (en minúscula) que tienen la app instalada con notificaciones activas */
 export async function emailsConApp(sb: import('@supabase/supabase-js').SupabaseClient): Promise<Set<string>> {

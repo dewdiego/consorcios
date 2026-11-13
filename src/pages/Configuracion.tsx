@@ -3,11 +3,12 @@ import { Image as ImageIcon, PenLine, Save } from 'lucide-react';
 import { supabase, type Administracion } from '@/lib/supabase';
 import { Button, Card, Input, PageHeader, Spinner } from '@/components/ui';
 import { useApp } from '@/context/AppContext';
-import { puedeElegirVista, vistaGuardada } from '@/lib/config';
+import { alCambiarVista, elegirVista, puedeElegirVista, vistaGuardada } from '@/lib/config';
 
 export function Configuracion() {
   const { usuario, email, superadmin } = useApp();
-  const elegirVista = (v: 'clasica' | 'amel') => { try { localStorage.setItem('ui_vista', v); } catch { /* noop */ } window.location.reload(); };
+  const [, redibujar] = useState(0);
+  useEffect(() => alCambiarVista(() => redibujar((n) => n + 1)), []);
   const [admin, setAdmin] = useState<Administracion | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
