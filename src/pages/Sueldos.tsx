@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calculator, Download, FileText, Plus, Pencil, Printer, Receipt, Save, Trash2, Users, WalletCards } from 'lucide-react';
+import { Calculator, CheckCheck, Download, FileText, Layers, ListChecks, Plus, Pencil, Printer, Receipt, Save, Trash2, Users, WalletCards } from 'lucide-react';
 import { supabase, type Administracion, type ConvenioEscala, type Empleado, type Parametro, type ReciboLinea, type Rubro, type SueldoLiquidacion } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { aniosAntiguedad, calcularSueldoCompleto, cargarParametros, cuentaPredeterminada, diasVacaciones, exportCSV, fmtDate, fmtMoney, hoyISO, invalidarParametros, periodoActual, periodoLabel, round2, type NovedadesSueldo, type Params } from '@/lib/engine';
 import { escHtml, imprimirHtml } from '@/lib/imprimir';
 import { Ayuda } from '@/components/Ayuda';
+import { AvisosNormativa, EscalaRapida, FuentesNormativa, useNormativa } from '@/components/NormativaSueldos';
 
 /*
   Sueldos del personal del consorcio (CCT 589/10 SUTERH, parametrizable):
@@ -15,14 +16,19 @@ import { Ayuda } from '@/components/Ayuda';
   - Parámetros: % de aportes, contribuciones, antigüedad, valores de adicionales.
   - Liquidación mensual: preliquidar → cargar novedades (horas extras, SAC, vacaciones, descuentos) → confirmar → recibo → pagar.
   - Para el contador: resumen de aportes/contribuciones (F.931) y exportación del período.
+  - En lote: liquidar el mes (este consorcio o todos), planilla de novedades de todos los empleados, confirmar y pagar todos juntos.
+  - Normativa: aviso cuando sale una escala nueva y carga rápida de la escala (ver components/NormativaSueldos).
 */
 
 const cargos = ['encargado', 'ayudante', 'suplente', 'personal_limpieza', 'vigilancia', 'otro'];
 const empVacio = { nombre: '', cuil: '', cargo: 'encargado', categoria: '', usar_escala: false, sueldo_basico: '', antiguedad_fecha: '', fecha_egreso: '', vive_en_edificio: false, jornada: 'completa', obra_social: '', cbu: '', adic_titulo: false, adic_vidrios: false, adic_residuos: false, adic_jardin: false, activo: true };
+type FilaPlanilla = { horas_50: string; horas_100: string; dias_vacaciones: string; adicionales: string; no_remunerativo: string; descuentos: string };
 type NovForm = { basico: string; adicionales: string; no_remunerativo: string; horas_50: string; horas_100: string; sac: boolean; sac_monto: string; dias_vacaciones: string; descuentos: string; observaciones: string };
 
 export function Sueldos() {
-  const { consorcio } = useApp();
+  const { consorcio, consorcios, usuario, superadmin } = useApp();
+  const admId = consorcio?.administracion_id || null; // la escala y los avisos son de la administración dueña del consorcio
+  const norm = useNormativa(admId);
   const [tab, setTab] = useState('liquidaciones');
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [liqs, setLiqs] = useState<SueldoLiquidacion[]>([]);
@@ -47,6 +53,8 @@ export function Sueldos() {
   const [pagarTarget, setPagarTarget] = useState<SueldoLiquidacion | null>(null);
   const [fechaPago, setFechaPago] = useState(hoyISO());
   const [borrarLiq, setBorrarLiq] = useState<SueldoLiquidacion | null>(null);
+  const [planilla, setPlanilla] = useState<Record<string, FilaPlanilla> | null>(null);
+  const [pagarLote, setPagarLote] = useState(false);
 
   const load = async () => {
     if (!consorcio) return;
@@ -55,7 +63,7 @@ export function Sueldos() {
       supabase.from('empleados').select('*').eq('consorcio_id', consorcio.id).order('nombre'),
       supabase.from('sueldo_liquidaciones').select('*, empleados(*)').eq('consorcio_id', consorcio.id).order('periodo', { ascending: false }),
       supabase.from('rubros').select('*').order('orden'),
-      supabase.from('convenio_escalas').select('*').order('categoria').order('vigencia_desde', { ascending: false }),
+      (admId ? supabase.from('convenio_escalas').select('*').eq('administracion_id', admId) : supabase.from('convenio_escalas').select('*')).order('categoria').order('vigencia_desde', { ascending: false }),
       supabase.from('parametros').select('*').in('grupo', ['aportes', 'contribuciones', 'convenio']).order('grupo').order('orden'),
       supabase.from('administracion').select('*').limit(1).maybeSingle(),
       cargarParametros(true),
@@ -97,7 +105,70 @@ export function Sueldos() {
       if (error) throw new Error(error.message);
       n++;
     }
-    return n > 0 ? `Se preliquidaron ${n} recibos de ${periodoLabel(periodo)}${esMesSac(periodo) ? ' (con SAC)' : ''}. Cargá las novedades de cada uno y confirmá.` : `Todos los empleados activos ya tienen liquidación en ${periodoLabel(periodo)}.`;
+    return n > 0 ? `Se liquidaron ${n} recibos de ${periodoLabel(periodo)}${esMesSac(periodo) ? ' (con SAC)' : ''}. Si hubo horas extras, vacaciones o descuentos, cargalos en la planilla de novedades; después confirmá todos.` : `Todos los empleados activos ya tienen liquidación en ${periodoLabel(periodo)}.`;
+  });
+
+  /** Liquida el período en TODOS los consorcios visibles de una sola vez. Lo que no se puede liquidar se informa, sin frenar el resto. */
+  const liquidarTodos = () => run(async () => {
+    const ids = consorcios.map((c) => c.id);
+    if (ids.length === 0) return;
+    const [{ data: emps }, { data: hechas }, { data: escs }] = await Promise.all([
+      supabase.from('empleados').select('*').in('consorcio_id', ids).eq('activo', true),
+      supabase.from('sueldo_liquidaciones').select('empleado_id').eq('periodo', periodo).in('consorcio_id', ids),
+      supabase.from('convenio_escalas').select('*'),
+    ]);
+    const ya = new Set(((hechas as { empleado_id: string }[]) || []).map((x) => x.empleado_id));
+    const todas = (escs as ConvenioEscala[]) || [];
+    const admDe = new Map(consorcios.map((c) => [c.id, c.administracion_id]));
+    const nombreDe = new Map(consorcios.map((c) => [c.id, c.nombre]));
+    const filas: Record<string, unknown>[] = []; const sinEscala: string[] = []; const edificios = new Set<string>();
+    for (const e of (emps as Empleado[]) || []) {
+      if (ya.has(e.id)) continue;
+      const basico = todas.filter((x) => x.categoria === e.categoria && x.vigencia_desde <= `${periodo}-28` && (!x.administracion_id || x.administracion_id === admDe.get(e.consorcio_id)))
+        .sort((a, b) => b.vigencia_desde.localeCompare(a.vigencia_desde))[0]?.basico;
+      if (e.usar_escala && !basico) { sinEscala.push(`${e.nombre} (${nombreDe.get(e.consorcio_id)})`); continue; }
+      filas.push({ consorcio_id: e.consorcio_id, empleado_id: e.id, periodo, ...calcularSueldoCompleto(e, params, { sac: esMesSac(periodo), periodo }, basico ? Number(basico) : undefined) });
+      edificios.add(e.consorcio_id);
+    }
+    if (filas.length) { const { error } = await supabase.from('sueldo_liquidaciones').insert(filas); if (error) throw new Error(error.message); }
+    const aviso = sinEscala.length ? ` Sin liquidar por falta de básico de escala para su categoría: ${sinEscala.join(', ')}.` : '';
+    return filas.length ? `Se liquidaron ${filas.length} recibos de ${periodoLabel(periodo)} en ${edificios.size} consorcios${esMesSac(periodo) ? ' (con SAC)' : ''}.${aviso}` : `No había nada para liquidar en ${periodoLabel(periodo)}: todos los empleados activos ya tienen recibo.${aviso}`;
+  });
+
+  // ---------- Planilla de novedades: todos los recibos sin confirmar del período, en una sola grilla ----------
+  const vivienda = (l: SueldoLiquidacion) => l.detalle?.find((x) => x.concepto === 'Valor vivienda')?.monto || 0;
+  const filaDe = (l: SueldoLiquidacion): FilaPlanilla => ({
+    horas_50: String(Number(l.horas_50) || ''), horas_100: String(Number(l.horas_100) || ''), dias_vacaciones: String(Number(l.dias_vacaciones) || ''),
+    adicionales: String(Number(l.adicionales) || ''), no_remunerativo: String(round2(Number(l.no_remunerativo) - vivienda(l)) || ''), descuentos: String(Number(l.descuentos) || ''),
+  });
+  const abrirPlanilla = () => setPlanilla(Object.fromEntries(liqsPeriodo.filter((l) => l.estado === 'preliquidada').map((l) => [l.id, filaDe(l)])));
+  const guardarPlanilla = () => run(async () => {
+    if (!planilla) return;
+    let n = 0;
+    for (const l of liqsPeriodo) {
+      const f = planilla[l.id]; if (!f || !l.empleados) continue;
+      if (JSON.stringify(f) === JSON.stringify(filaDe(l))) continue; // sin cambios
+      const num = (v: string) => parseFloat(v.replace(',', '.')) || 0;
+      const calc = calcularSueldoCompleto(l.empleados, params, {
+        basico: Number(l.basico) || undefined, adicionales: num(f.adicionales), no_remunerativo: num(f.no_remunerativo), horas_50: num(f.horas_50), horas_100: num(f.horas_100),
+        // El SAC se conserva: recalculado si es junio/diciembre, o el monto que se había cargado a mano en otro mes
+        sac: Number(l.sac) > 0 ? (esMesSac(l.periodo) ? true : Number(l.sac)) : false,
+        dias_vacaciones: parseInt(f.dias_vacaciones) || 0, descuentos: num(f.descuentos), periodo: l.periodo,
+      });
+      const { error } = await supabase.from('sueldo_liquidaciones').update(calc).eq('id', l.id);
+      if (error) throw new Error(`${l.empleados.nombre}: ${error.message}`);
+      n++;
+    }
+    setPlanilla(null);
+    return n ? `Se recalcularon ${n} recibos con las novedades.` : 'No había cambios para guardar.';
+  });
+
+  const confirmarTodas = () => run(async () => {
+    const ids = liqsPeriodo.filter((l) => l.estado === 'preliquidada').map((l) => l.id);
+    if (!ids.length) return 'No hay recibos sin confirmar.';
+    const { error } = await supabase.from('sueldo_liquidaciones').update({ estado: 'liquidada' }).in('id', ids);
+    if (error) throw new Error(error.message);
+    return `Se confirmaron ${ids.length} recibos. Ya se pueden imprimir y pagar.`;
   });
 
   const abrirNovedades = (l: SueldoLiquidacion) => {
@@ -127,8 +198,8 @@ export function Sueldos() {
   const volverAPreliquidada = (l: SueldoLiquidacion) => run(async () => { await supabase.from('sueldo_liquidaciones').update({ estado: 'preliquidada' }).eq('id', l.id); });
 
   /** Pagar: egreso de caja por el neto y gasto en expensas por el costo total (bruto + cargas + no rem). */
-  const pagar = () => run(async () => {
-    const l = pagarTarget; if (!consorcio || !l || l.gasto_id) return;
+  const pagarUna = async (l: SueldoLiquidacion, fechaPago: string) => {
+    if (!consorcio || l.gasto_id) return;
     const rubroSueldos = rubros.find((r) => r.nombre.toLowerCase().includes('sueldo'));
     const { data: gasto, error } = await supabase.from('gastos').insert({
       consorcio_id: consorcio.id, descripcion: `Sueldo ${l.empleados?.nombre} ${periodoLabel(l.periodo)} (c/cargas sociales)`,
@@ -140,8 +211,18 @@ export function Sueldos() {
       consorcio_id: consorcio.id, cuenta_id: await cuentaPredeterminada(consorcio.id), fecha: fechaPago, tipo: 'egreso',
       concepto: `Sueldo ${l.empleados?.nombre} ${periodoLabel(l.periodo)}`, monto: Number(l.neto), origen: 'sueldo', origen_id: l.id,
     });
+  };
+  const pagar = () => run(async () => {
+    const l = pagarTarget; if (!l) return;
+    await pagarUna(l, fechaPago);
     setPagarTarget(null);
     return `Pagado: egreso de caja ${fmtMoney(Number(l.neto))} y gasto en expensas por ${fmtMoney(Number(l.costo_total))} (costo total con cargas).`;
+  });
+  const pagarTodas = () => run(async () => {
+    const lista = liqsPeriodo.filter((l) => l.estado === 'liquidada' && !l.gasto_id);
+    for (const l of lista) await pagarUna(l, fechaPago);
+    setPagarLote(false);
+    return `Se registró el pago de ${lista.length} sueldos: salieron de caja ${fmtMoney(round2(lista.reduce((a, l) => a + Number(l.neto), 0)))} y entraron a las expensas ${fmtMoney(round2(lista.reduce((a, l) => a + Number(l.costo_total), 0)))}.`;
   });
 
   const saveEmp = () => run(async () => {
@@ -159,7 +240,7 @@ export function Sueldos() {
 
   const guardarEscala = () => run(async () => {
     if (!escForm.categoria.trim() || !escForm.basico) throw new Error('Categoría y básico son obligatorios.');
-    const { error } = await supabase.from('convenio_escalas').upsert({ categoria: escForm.categoria.trim(), basico: parseFloat(escForm.basico), vigencia_desde: escForm.vigencia_desde, notas: escForm.notas || null }, { onConflict: 'categoria,vigencia_desde' });
+    const { error } = await supabase.from('convenio_escalas').upsert({ ...(admId ? { administracion_id: admId } : {}), categoria: escForm.categoria.trim(), basico: parseFloat(escForm.basico), vigencia_desde: escForm.vigencia_desde, notas: escForm.notas || null }, { onConflict: 'administracion_id,categoria,vigencia_desde' });
     if (error) throw new Error(error.message);
     setEscForm({ categoria: '', basico: '', vigencia_desde: hoyISO(), notas: '' });
     return 'Escala guardada. Las próximas preliquidaciones usan este básico para esa categoría.';
@@ -202,6 +283,12 @@ export function Sueldos() {
   const sum = (k: keyof SueldoLiquidacion) => round2(liqsPeriodo.reduce((a, l) => a + Number(l[k] || 0), 0));
   const pct = (k: string) => params[k] || 0;
   const categorias = [...new Set(escalas.map((x) => x.categoria))];
+  const sinConfirmar = liqsPeriodo.filter((l) => l.estado === 'preliquidada').length;
+  const porPagar = liqsPeriodo.filter((l) => l.estado === 'liquidada' && !l.gasto_id);
+  // Escala vieja: la última vigencia cargada tiene más de 3 meses (las paritarias suelen actualizarla antes)
+  const ultimaVigencia = escalas.map((x) => x.vigencia_desde).sort().pop();
+  const escalaVieja = !!ultimaVigencia && (Date.now() - new Date(`${ultimaVigencia}T12:00:00`).getTime()) / 86400000 > 92;
+  const ultimaPublicada = norm.fuentes.find((f) => f.ultimo_titulo);
 
   return (
     <div>
@@ -212,7 +299,8 @@ export function Sueldos() {
           : tab === 'escala' ? null
           : <div className="flex gap-2 items-end flex-wrap">
               <div className="w-40"><Input label="Período" type="month" value={periodo} onChange={setPeriodo} /></div>
-              {tab === 'liquidaciones' && <Button onClick={preliquidar} disabled={busy}><Calculator size={15} /> Preliquidar</Button>}
+              {tab === 'liquidaciones' && <Button onClick={preliquidar} disabled={busy}><Calculator size={15} /> Liquidar el mes</Button>}
+              {tab === 'liquidaciones' && consorcios.length > 1 && <Button variant="secondary" onClick={liquidarTodos} disabled={busy}><Layers size={15} /> Todos los consorcios</Button>}
               {liqsPeriodo.length > 0 && <Button variant="secondary" onClick={imprimirTodos}><Printer size={15} /> Recibos</Button>}
               {liqsPeriodo.length > 0 && <Button variant="secondary" onClick={exportarContador}><Download size={15} /> Para el contador</Button>}
             </div>} />
@@ -227,12 +315,19 @@ export function Sueldos() {
         { key: 'parametros', label: 'Parámetros' },
       ]} />
 
+      <AvisosNormativa norm={norm} administracionId={admId} escalas={escalas} usuario={usuario} superadmin={superadmin} onIrEscala={() => setTab('escala')} onCambio={(m) => { if (m) setMsg(m); load(); }} />
+      {escalaVieja && norm.pendientes.length === 0 && (tab === 'liquidaciones' || tab === 'escala') && (
+        <div className="text-sm rounded-lg px-4 py-2.5 mb-4 bg-amber-50 text-amber-800">
+          La última escala cargada rige desde el {fmtDate(ultimaVigencia!)}.{ultimaPublicada ? <> Última publicación oficial detectada: <a href={ultimaPublicada.ultimo_link || ultimaPublicada.url} target="_blank" rel="noreferrer" className="underline font-medium">{ultimaPublicada.ultimo_titulo}</a>.</> : ''} Verificá que esté al día antes de liquidar.
+        </div>
+      )}
+
       {tab === 'liquidaciones' && <Ayuda id="sueldos_liq" titulo="Cómo liquidar los sueldos del mes y qué hacer después">
         <ol>
-          <li><b>Preliquidar</b>: arma un recibo por empleado activo con básico, antigüedad y adicionales. En junio y diciembre incluye el SAC.</li>
-          <li><b>Novedades</b> (lápiz): horas extras, vacaciones, descuentos. <b>Confirmar</b> cuando esté bien.</li>
+          <li><b>Liquidar el mes</b>: arma un recibo por empleado activo con básico, antigüedad y adicionales. En junio y diciembre incluye el SAC. Con <b>Todos los consorcios</b> lo hace en todos los edificios a la vez.</li>
+          <li><b>Planilla de novedades</b>: horas extras, vacaciones y descuentos de todos los empleados en una sola grilla (o el lápiz, de a uno). Después <b>Confirmar todos</b>.</li>
           <li><b>Recibo</b>: imprimilo por duplicado, el empleado firma uno ("recibí conforme") y se lo guarda; el otro queda en el legajo. Se paga hasta el 4º día hábil del mes siguiente.</li>
-          <li><b>Pagar</b>: registra la salida de caja y mete el costo total (sueldo + cargas) como gasto de las expensas del mes.</li>
+          <li><b>Pagar todos</b> (o Pagar, de a uno): registra la salida de caja y mete el costo total (sueldo + cargas) como gasto de las expensas del mes.</li>
           <li><b>Después, antes del día 9 del mes siguiente</b>: presentar el F.931 en ARCA (o mandarle el CSV "Para el contador" al liquidador) y pagar aportes y contribuciones con el VEP; pagar la cuota sindical (SUTERH) y FATERYH con sus boletas. Ver pestaña "Aportes y contribuciones".</li>
         </ol>
       </Ayuda>}
@@ -251,13 +346,21 @@ export function Sueldos() {
         </ul>
       </Ayuda>}
       {tab === 'escala' && <Ayuda id="sueldos_esc" titulo="Cuándo actualizar la escala">
-        <p>Cada vez que sale una paritaria del convenio de encargados (CCT 589/10, SUTERH), cargá el nuevo básico de cada categoría con la fecha desde la que rige. Los recibos de períodos anteriores siguen usando la escala vieja. Si preferís no usar escala, dejá el básico en cada empleado.</p>
+        <p>El sistema vigila las publicaciones oficiales y avisa arriba de esta pantalla cuando sale una escala nueva. Cada vez que sale una paritaria del convenio de encargados (CCT 589/10, SUTERH), cargá el nuevo básico de cada categoría con la fecha desde la que rige: pegando la tabla, aplicando el porcentaje de aumento, o con el botón Aplicar del aviso si ya trae los valores. Los recibos de períodos anteriores siguen usando la escala vieja. Si preferís no usar escala, dejá el básico en cada empleado.</p>
       </Ayuda>}
       {loading ? <Spinner /> : tab === 'liquidaciones' ? (
         liqsPeriodo.length === 0 ? (
-          <Card><EmptyState icon={<WalletCards size={28} />} title={`No hay liquidaciones para ${periodoLabel(periodo)}`} subtitle='"Preliquidar" genera el recibo de cada empleado activo con básico, antigüedad y adicionales. Después cargás horas extras, SAC o vacaciones.' /></Card>
+          <Card><EmptyState icon={<WalletCards size={28} />} title={`No hay liquidaciones para ${periodoLabel(periodo)}`} subtitle='"Liquidar el mes" genera el recibo de cada empleado activo con básico, antigüedad y adicionales. Después cargás horas extras o vacaciones en la planilla de novedades.' /></Card>
         ) : (
           <Card>
+            {(sinConfirmar > 0 || porPagar.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50 rounded-t-xl">
+                <span className="text-sm text-slate-500 mr-1">En lote:</span>
+                {sinConfirmar > 0 && <Button size="sm" variant="secondary" onClick={abrirPlanilla} disabled={busy}><ListChecks size={14} /> Planilla de novedades</Button>}
+                {sinConfirmar > 0 && <Button size="sm" variant="secondary" onClick={confirmarTodas} disabled={busy}><CheckCheck size={14} /> Confirmar todos ({sinConfirmar})</Button>}
+                {porPagar.length > 0 && <Button size="sm" onClick={() => { setFechaPago(hoyISO()); setPagarLote(true); }} disabled={busy}><Receipt size={14} /> Pagar todos ({porPagar.length})</Button>}
+              </div>
+            )}
             <Table headers={['Empleado', 'Básico', 'Antig.', 'Adic.', 'Hs extras', 'SAC', 'Vac.', 'Bruto', 'Aportes', 'No rem.', 'Neto', 'Costo total', 'Estado', '']}
               footer={<tr className="bg-slate-50 font-bold"><Td>Totales</Td><Td>{fmtMoney(sum('basico'))}</Td><Td>{fmtMoney(sum('antiguedad'))}</Td><Td>{fmtMoney(round2(sum('adicionales') + sum('adic_convenio')))}</Td><Td>{fmtMoney(sum('horas_extras'))}</Td><Td>{fmtMoney(sum('sac'))}</Td><Td>{fmtMoney(sum('vacaciones'))}</Td><Td>{fmtMoney(sum('bruto'))}</Td><Td className="text-red-500">-{fmtMoney(sum('aportes'))}</Td><Td>{fmtMoney(sum('no_remunerativo'))}</Td><Td>{fmtMoney(sum('neto'))}</Td><Td>{fmtMoney(sum('costo_total'))}</Td><Td colSpan={2} /></tr>}>
               {liqsPeriodo.map((l) => (
@@ -344,8 +447,9 @@ export function Sueldos() {
         )
       ) : tab === 'escala' ? (
         <>
-          <Card className="mb-4">
-            <h3 className="font-semibold text-slate-700 mb-1">Cargar básico de convenio</h3>
+          <EscalaRapida norm={norm} administracionId={admId} escalas={escalas} usuario={usuario} superadmin={superadmin} onCambio={(m) => { if (m) setMsg(m); load(); }} />
+          <Card className="mb-4 p-5">
+            <h3 className="font-semibold text-slate-700 mb-1">Cargar una categoría a mano</h3>
             <p className="text-xs text-slate-400 mb-3">Una fila por categoría y fecha de vigencia. En cada paritaria cargás la nueva vigencia; las anteriores quedan para liquidar períodos viejos. Los empleados con "usar escala" toman el básico de acá.</p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
               <Input label="Categoría" value={escForm.categoria} onChange={(v) => setEscForm({ ...escForm, categoria: v })} placeholder="Encargado permanente c/viv." />
@@ -366,6 +470,7 @@ export function Sueldos() {
               {escalas.length === 0 && <tr><Td colSpan={5} className="text-center text-slate-400 py-8">Sin escala cargada. Podés seguir usando el básico de cada empleado.</Td></tr>}
             </Table>
           </Card>
+          <FuentesNormativa norm={norm} superadmin={superadmin} />
         </>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -435,6 +540,38 @@ export function Sueldos() {
         <p className="text-sm text-slate-600 mb-3">Sale de caja el neto <b>{fmtMoney(Number(pagarTarget?.neto || 0))}</b> y entra a las expensas un gasto por el costo total <b>{fmtMoney(Number(pagarTarget?.costo_total || 0))}</b> (bruto + cargas + no remunerativo).</p>
         <Input label="Fecha de pago" type="date" value={fechaPago} onChange={setFechaPago} />
         <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={() => setPagarTarget(null)}>Cancelar</Button><Button onClick={pagar} disabled={busy}>Confirmar pago</Button></div>
+      </Modal>
+
+      <Modal open={pagarLote} onClose={() => setPagarLote(false)} title={`Pagar ${porPagar.length} sueldos · ${periodoLabel(periodo)}`} size="sm">
+        <p className="text-sm text-slate-600 mb-3">Sale de caja el neto de todos, <b>{fmtMoney(round2(porPagar.reduce((a, l) => a + Number(l.neto), 0)))}</b>, y entra a las expensas un gasto por cada empleado con su costo total, <b>{fmtMoney(round2(porPagar.reduce((a, l) => a + Number(l.costo_total), 0)))}</b> en conjunto.</p>
+        <Input label="Fecha de pago" type="date" value={fechaPago} onChange={setFechaPago} />
+        <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={() => setPagarLote(false)}>Cancelar</Button><Button onClick={pagarTodas} disabled={busy}>Confirmar pagos</Button></div>
+      </Modal>
+
+      <Modal open={!!planilla} onClose={() => setPlanilla(null)} title={`Planilla de novedades · ${periodoLabel(periodo)}`} size="lg">
+        {planilla && <>
+          <p className="text-sm text-slate-600 mb-3">Cargá sólo lo que cambió este mes; lo que dejes vacío queda en cero. Al guardar se recalcula cada recibo.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-slate-500">
+                <th className="py-2 pr-2">Empleado</th><th className="px-1">Hs 50%</th><th className="px-1">Hs 100%</th><th className="px-1">Días vac.</th><th className="px-1">Adic. $</th><th className="px-1">No rem. $</th><th className="px-1">Desc. $</th>
+              </tr></thead>
+              <tbody>
+                {liqsPeriodo.filter((l) => planilla[l.id]).map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="py-1.5 pr-2 font-medium text-slate-700 max-w-[140px]">{l.empleados?.nombre}<div className="text-xs font-normal text-slate-400">vac.: {diasVacaciones(aniosAntiguedad(l.empleados?.antiguedad_fecha || null, `${l.periodo}-28`))} días</div></td>
+                    {(['horas_50', 'horas_100', 'dias_vacaciones', 'adicionales', 'no_remunerativo', 'descuentos'] as (keyof FilaPlanilla)[]).map((k) => (
+                      <td key={k} className="px-1"><input type="number" step={k.startsWith('horas') ? '0.5' : k === 'dias_vacaciones' ? '1' : '0.01'} min="0" value={planilla[l.id][k]} aria-label={`${k} de ${l.empleados?.nombre}`}
+                        onChange={(e) => setPlanilla({ ...planilla, [l.id]: { ...planilla[l.id], [k]: e.target.value } })} className="w-[70px] text-sm border border-slate-200 rounded px-1.5 py-1 text-right" /></td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-400 mt-3">Para cambiar el básico del mes, el SAC a mano o las observaciones del recibo, usá el lápiz de ese empleado.</p>
+          <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={() => setPlanilla(null)}>Cancelar</Button><Button onClick={guardarPlanilla} disabled={busy}>Guardar y recalcular</Button></div>
+        </>}
       </Modal>
 
       <ConfirmDialog open={!!deleteEmp} title="Eliminar empleado" message={`¿Eliminar a ${deleteEmp?.nombre}? Se borran también sus liquidaciones. Si dejó de trabajar, mejor cargale la fecha de egreso.`}

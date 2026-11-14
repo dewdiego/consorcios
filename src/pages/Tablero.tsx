@@ -7,7 +7,7 @@ import { fmtMoney, periodoActual } from '@/lib/engine';
 type FilaUF = { nombre: string; cupones: number; distribuido: number; cobrado: number };
 
 export function Tablero() {
-  const { consorcios } = useApp();
+  const { consorcios , administracionId } = useApp();
   const [periodo, setPeriodo] = useState(periodoActual());
   const [loading, setLoading] = useState(true);
   const [liqs, setLiqs] = useState<Liquidacion[]>([]);
@@ -34,6 +34,15 @@ export function Tablero() {
       al.push({ texto: `Póliza ${p.tipo.replace('_', ' ')} de ${p.consorcios?.nombre || ''} ${p.vencimiento < hoy ? 'venció' : 'vence'} el ${p.vencimiento.split('-').reverse().join('/')}`, vencida: p.vencimiento < hoy });
     }
     for (const c of consorcios) if (c.activo && c.fecha_mandato_hasta && c.fecha_mandato_hasta <= limite) al.push({ texto: `Mandato del administrador en ${c.nombre} ${c.fecha_mandato_hasta < hoy ? 'venció' : 'vence'} el ${c.fecha_mandato_hasta.split('-').reverse().join('/')}`, vencida: c.fecha_mandato_hasta < hoy });
+    // Cambios de normativa de sueldos que esta administración todavía no revisó (si la tabla no existe aún, no hace nada)
+    if (administracionId) {
+      const [{ data: avs }, { data: ests }] = await Promise.all([
+        supabase.from('normativa_avisos').select('id, titulo').eq('activo', true).order('created_at', { ascending: false }).limit(10),
+        supabase.from('normativa_avisos_estado').select('aviso_id').eq('administracion_id', administracionId),
+      ]);
+      const vistos = new Set(((ests as { aviso_id: string }[]) || []).map((e) => e.aviso_id));
+      for (const a of ((avs as { id: string; titulo: string }[]) || []).filter((x) => !vistos.has(x.id))) al.unshift({ texto: `Cambio de normativa de sueldos: ${a.titulo}. Revisalo en Sueldos antes de liquidar.`, vencida: false });
+    }
     setAlertas(al);
     const liqList = (ls as Liquidacion[]) || [];
     setLiqs(liqList);

@@ -54,7 +54,11 @@ export type Proveedor = {
 };
 
 export type Parametro = { clave: string; grupo: string; descripcion: string; valor: number; orden: number };
-export type ConvenioEscala = { id: string; categoria: string; basico: number; vigencia_desde: string; notas: string | null };
+export type ConvenioEscala = { id: string; categoria: string; basico: number; vigencia_desde: string; notas: string | null; administracion_id?: string | null };
+// Avisos de cambios de normativa de sueldos (los ve toda administración; los valores los publica el superadmin)
+export type NormativaFuente = { id: string; nombre: string; url: string; patron: string; tipo: string; activo: boolean; ultimo_titulo: string | null; ultimo_link: string | null; ultimo_chequeo: string | null; ultimo_error: string | null };
+export type NormativaAviso = { id: string; tipo: string; titulo: string; detalle: string | null; fuente_url: string | null; origen: 'automatico' | 'manual'; vigencia_desde: string | null; escala: { categoria: string; basico: number }[] | null; valores_at: string | null; activo: boolean; created_at: string };
+export type NormativaEstado = { aviso_id: string; administracion_id: string; estado: 'aplicado' | 'visto'; created_at: string };
 export type ConsorcioPoliza = {
   id: string; consorcio_id: string; tipo: string; compania: string | null; numero: string | null;
   vencimiento: string; monto: number | null; archivo_path: string | null; notas: string | null;
