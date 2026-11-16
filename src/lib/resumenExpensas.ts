@@ -1,4 +1,4 @@
-import { supabase, type Administracion, type Consorcio, type Cupon, type Gasto, type Liquidacion, type Rubro, type SueldoLiquidacion, type Unidad } from './supabase';
+import { supabase, type Administracion, type AjusteUnidad, type Consorcio, type Juicio, type Cupon, type Gasto, type Liquidacion, type Rubro, type SueldoLiquidacion, type Unidad } from './supabase';
 import { fmtDate, fmtMoney, periodoLabel, round2 } from './engine';
 import { escHtml, imprimirHtml } from './imprimir';
 import QRCode from 'qrcode';
@@ -42,6 +42,13 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
   ]);
   const { data: sueldosData } = await supabase.from('sueldo_liquidaciones').select('*, empleados(*)').eq('consorcio_id', liq.consorcio_id).eq('periodo', liq.periodo);
   const sueldos = (sueldosData || []) as SueldoLiquidacion[];
+  const [{ data: juiciosData }, { data: ajustesData }] = await Promise.all([
+    supabase.from('juicios').select('*').eq('consorcio_id', liq.consorcio_id).eq('estado', 'activo').order('created_at'),
+    supabase.from('ajustes_unidad').select('*, unidades(uf, depto)').eq('consorcio_id', liq.consorcio_id).or(liq.estado === 'abierta' ? `liquidacion_id.eq.${liq.id},liquidacion_id.is.null` : `liquidacion_id.eq.${liq.id}`).order('created_at'),
+  ]);
+  const juicios = (juiciosData || []) as Juicio[];
+  const ajustes = ((ajustesData || []) as AjusteUnidad[]).sort((x, y) => (x.unidades?.uf || 0) - (y.unidades?.uf || 0));
+  const TIPO_AJ: Record<string, string> = { cargo: 'Cargo', descuento: 'Descuento', quita_deuda: 'Quita de deuda', quita_intereses: 'Quita de intereses', multa: 'Multa', reserva: 'Reserva', plan: 'Plan de pago' };
   const a = adm as Administracion | null;
   const gs = (gastos || []) as Gasto[];
   const cs = ((cupones || []) as Cupon[]).sort((x, y) => (x.unidades?.uf || 0) - (y.unidades?.uf || 0));
@@ -85,13 +92,14 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
 
   // Estado de cuentas y prorrateo
   const coef = (u: Unidad | undefined, k: 'a' | 'b' | 'c' | 'd') => Number(u?.[`coef_${k}` as keyof Unidad] || 0);
+  const hayOtros = cs.some((c) => Number(c.otros || 0) !== 0);
   const filasCupon = cs.map((c) => {
     const u = c.unidades || us.find((x) => x.id === c.unidad_id);
     const pag = pagosPorUnidad[c.unidad_id] || 0;
     const saldoAntBruto = round2(Number(c.saldo_anterior) + pag);
     const gastosCupon = round2(Number(c.monto_a) + Number(c.monto_b) + Number(c.monto_c) + Number(c.monto_d));
-    const redondeo = round2(Number(c.total) - gastosCupon - Number(c.saldo_anterior) - Number(c.intereses));
-    return `<tr><td>${String(u?.uf ?? '').padStart(3, '0')}</td><td>${escHtml(u?.depto || '')}</td><td>${escHtml(u?.propietario || '')}</td><td class="n">${n(saldoAntBruto)}</td><td class="n">${pag ? n(pag) : ''}</td><td class="n">${Number(c.saldo_anterior) > 0 ? n(c.saldo_anterior) : ''}</td><td class="n">${Number(c.intereses) ? n(c.intereses) : ''}</td><td class="n">${Number(c.saldo_anterior) < 0 ? n(-Number(c.saldo_anterior)) : ''}</td>${colsUsadas.map((k) => `<td class="n chico">${coef(u, k.key).toFixed(2)}%</td><td class="n">${n(c[`monto_${k.key}` as keyof Cupon])}</td>`).join('')}<td class="n">${redondeo ? n(redondeo) : ''}</td><td class="n"><b>${n(c.total)}</b></td><td class="n">${n(c.total_2do_venc)}</td></tr>`;
+    const redondeo = round2(Number(c.total) - gastosCupon - Number(c.saldo_anterior) - Number(c.intereses) - Number(c.otros || 0));
+    return `<tr><td>${String(u?.uf ?? '').padStart(3, '0')}</td><td>${escHtml(u?.depto || '')}</td><td>${escHtml(u?.propietario || '')}</td><td class="n">${n(saldoAntBruto)}</td><td class="n">${pag ? n(pag) : ''}</td><td class="n">${Number(c.saldo_anterior) > 0 ? n(c.saldo_anterior) : ''}</td><td class="n">${Number(c.intereses) ? n(c.intereses) : ''}</td><td class="n">${Number(c.saldo_anterior) < 0 ? n(-Number(c.saldo_anterior)) : ''}</td>${colsUsadas.map((k) => `<td class="n chico">${coef(u, k.key).toFixed(2)}%</td><td class="n">${n(c[`monto_${k.key}` as keyof Cupon])}</td>`).join('')}${hayOtros ? `<td class="n">${Number(c.otros) ? n(c.otros) : ''}</td>` : ''}<td class="n">${redondeo ? n(redondeo) : ''}</td><td class="n"><b>${n(c.total)}</b></td><td class="n">${n(c.total_2do_venc)}</td></tr>`;
   }).join('');
   const totCup = (k: keyof Cupon) => round2(cs.reduce((s, c) => s + Number(c[k] || 0), 0));
 
@@ -109,6 +117,7 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
 
   const qrAfip = await qr('https://www.afip.gob.ar/aportesenlinea');
   const qrComp = consorcio.url_comprobantes ? await qr(consorcio.url_comprobantes) : '';
+  const qrRegl = consorcio.url_reglamento ? await qr(consorcio.url_reglamento) : '';
 
   const html = `
     ${simulacion ? '<div class="caja" style="background:#fef3c7;border-color:#f59e0b;text-align:center"><b>SIMULACIÓN</b> — la liquidación sigue abierta; los importes pueden cambiar hasta el cierre.</div>' : ''}
@@ -122,15 +131,17 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     ${sec('IMPORTANTE', `En caso de urgencia &nbsp; ${escHtml(a?.telefono || '')} &nbsp; ${escHtml(a?.nombre || '')}`)}
     ${sec('ENLACES DE ACCESO', `<div class="cols2"><div class="qrrow">${qrAfip}<div class="chico">Mediante el siguiente enlace <b>https://www.afip.gob.ar/aportesenlinea</b> o QR, podrá ingresar a los datos acerca del estado de los pagos efectuados correspondientes a los aportes y contribuciones a la seguridad social, con clave fiscal y el CUIL del empleado.</div></div>
       <div class="qrrow">${consorcio.url_comprobantes ? `${qrComp}<div class="chico">Mediante el <b>siguiente link</b> o QR podrá acceder al listado de comprobantes ingresados por el administrador, correspondientes al período actual.</div>` : '<div class="chico mut">Los comprobantes de cada gasto se consultan en el portal de vecinos.</div>'}</div></div>`, '(Conf disp DI-2024-1146-GCABA-DGDYPC)')}
+    ${qrRegl ? sec('REGLAMENTO DE COPROPIEDAD', `<div class="qrrow">${qrRegl}<div class="chico">Mediante el siguiente link o QR podrá consultar el reglamento de copropiedad del consorcio: <b>${escHtml(consorcio.url_reglamento)}</b></div></div>`) : ''}
     ${sueldos.length ? sec('REMUNERACIONES AL PERSONAL Y CARGAS SOCIALES', bloqueSueldos, '(Conf. Art. 10 inc d Ley Nº 941)', '') : ''}
     ${sec('DETALLE DE GASTOS DEL PERÍODO', `<table class="t"><thead><tr><th>RUBROS - CONCEPTO</th>${colsUsadas.map((c) => `<th class="n">${c.titulo}</th>`).join('')}<th class="n">TOTAL</th></tr></thead><tbody>${tablaGastos}</tbody></table>`, '(Conf. Art. 10 inc e y f Ley Nº 941)', '')}
     ${sec('TOTAL DE GASTOS', `<table class="t"><thead><tr><th></th>${colsUsadas.map((c) => `<th class="n">${c.titulo}</th>`).join('')}<th class="n">TOTAL</th></tr></thead><tbody><tr class="total"><td>TOTALES</td>${colsUsadas.map((c) => `<td class="n">${n(tot[c.key])}</td>`).join('')}<td class="n">${n(totalGastos)}</td></tr></tbody></table>`)}
     ${sec('ESTADO FINANCIERO', `<div class="subh">RESUMEN DE MOVIMIENTOS CAJA</div><table class="t"><tr class="sub"><td>SALDO INICIAL</td><td class="n">${n(saldoInicial)}</td></tr><tr><td>INGRESOS DEL MES (cobros de expensas y otros)</td><td class="n">${n(ingresos)}</td></tr><tr><td>EGRESOS POR GASTOS DEL MES</td><td class="n">${n(-egresos)}</td></tr><tr class="total"><td>SALDO AL CIERRE</td><td class="n">${n(saldoCierre)}</td></tr></table>
       <div class="subh">ESTADO PATRIMONIAL</div><table class="t"><tr><td>DISPONIBILIDADES AL CIERRE</td><td class="n">${n(saldoCierre)}</td></tr><tr><td>EXPENSAS A COBRAR POR GASTOS</td><td class="n">${n(expensasACobrar)}</td></tr><tr><td>DEUDAS E INTERESES A COBRAR</td><td class="n">${n(deudasAnteriores)}</td></tr><tr><td>PROVEEDORES A PAGAR</td><td class="n">${n(-aPagar)}</td></tr><tr class="total"><td>PATRIMONIO NETO AL CIERRE</td><td class="n">${n(round2(saldoCierre + expensasACobrar - aPagar))}</td></tr></table>`, '(Conf. Art. 10 inc c e i Ley Nº 941)')}
-    ${sec('DATOS DE JUICIOS', '<p class="center mut">No hay juicios vigentes informados</p>', '(Conf. Art. 10 inc h Ley Nº 941)')}
+    ${sec('DATOS DE JUICIOS', juicios.length ? `<table class="t chico"><thead><tr><th>Carátula</th><th>Expediente</th><th>Juzgado</th><th>Objeto</th><th class="n">Monto reclamado</th><th>Estado</th></tr></thead><tbody>${juicios.map((j) => `<tr><td>${escHtml(j.caratula)}</td><td>${escHtml(j.expediente || '')}</td><td>${escHtml(j.juzgado || '')}</td><td>${escHtml(j.objeto || '')}</td><td class="n">${j.monto_reclamado ? n(j.monto_reclamado) : ''}</td><td>${escHtml(j.comentario || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="center mut">No hay juicios vigentes informados</p>', '(Conf. Art. 10 inc h Ley Nº 941)')}
+    ${ajustes.length ? sec('MULTAS, RESERVAS Y AJUSTES', `<table class="t chico"><thead><tr><th>UF</th><th>Depto.</th><th>Tipo</th><th>Concepto</th><th class="n">Importe</th></tr></thead><tbody>${ajustes.map((x) => `<tr><td>${String(x.unidades?.uf ?? '').padStart(3, '0')}</td><td>${escHtml(x.unidades?.depto || '')}</td><td>${TIPO_AJ[x.tipo] || x.tipo}</td><td>${escHtml(x.concepto)}</td><td class="n">${n(x.monto_aplicado ?? x.monto)}</td></tr>`).join('')}</tbody></table>`) : ''}
     ${cs.length ? `<div class="sec apaisado"><div class="sec-h"><span>ESTADO DE CUENTAS Y PRORRATEO DE GASTOS</span></div><div class="sec-b">
-    <table class="t chico"><thead><tr><th>UF</th><th>Depto.</th><th>Propietario</th><th class="n">Saldo<br>Anterior</th><th class="n">Pagos<br>Recibidos</th><th class="n">Deuda</th><th class="n">Interés</th><th class="n">Disponible</th>${colsUsadas.map((c) => `<th class="n">% ${c.key.toUpperCase()}</th><th class="n">${c.titulo}</th>`).join('')}<th class="n">Redon.</th><th class="n">TOTAL</th><th class="n">2do vto</th></tr></thead>
-    <tbody>${filasCupon}<tr class="total"><td colspan="3">TOTALES</td><td></td><td class="n">${n(Object.values(pagosPorUnidad).reduce((s, v) => s + v, 0))}</td><td class="n">${n(deudasAnteriores)}</td><td class="n">${n(totCup('intereses'))}</td><td></td>${colsUsadas.map((c) => `<td class="n">100,00%</td><td class="n">${n(totCup(`monto_${c.key}` as keyof Cupon))}</td>`).join('')}<td></td><td class="n">${n(totCup('total'))}</td><td class="n">${n(totCup('total_2do_venc'))}</td></tr></tbody></table></div></div>` : '<p class="mut">Todavía no hay cupones generados: usá "Simular" para ver el prorrateo.</p>'}
+    <table class="t chico"><thead><tr><th>UF</th><th>Depto.</th><th>Propietario</th><th class="n">Saldo<br>Anterior</th><th class="n">Pagos<br>Recibidos</th><th class="n">Deuda</th><th class="n">Interés</th><th class="n">Disponible</th>${colsUsadas.map((c) => `<th class="n">% ${c.key.toUpperCase()}</th><th class="n">${c.titulo}</th>`).join('')}${hayOtros ? '<th class="n">Multas y<br>ajustes</th>' : ''}<th class="n">Redon.</th><th class="n">TOTAL</th><th class="n">2do vto</th></tr></thead>
+    <tbody>${filasCupon}<tr class="total"><td colspan="3">TOTALES</td><td></td><td class="n">${n(Object.values(pagosPorUnidad).reduce((s, v) => s + v, 0))}</td><td class="n">${n(deudasAnteriores)}</td><td class="n">${n(totCup('intereses'))}</td><td></td>${colsUsadas.map((c) => `<td class="n">100,00%</td><td class="n">${n(totCup(`monto_${c.key}` as keyof Cupon))}</td>`).join('')}${hayOtros ? `<td class="n">${n(totCup('otros'))}</td>` : ''}<td></td><td class="n">${n(totCup('total'))}</td><td class="n">${n(totCup('total_2do_venc'))}</td></tr></tbody></table></div></div>` : '<p class="mut">Todavía no hay cupones generados: usá "Simular" para ver el prorrateo.</p>'}
     ${liq.notas ? sec('NOTAS', `<div class="notas">${escHtml(liq.notas)}</div>`) : ''}
     ${fp.length ? `<div class="sec"><div class="sec-b"><div class="fp-h">FORMAS DE PAGO</div>${fp.map((x) => `<div>${x}</div>`).join('')}</div></div>` : ''}
     <p class="chico mut center" style="margin-top:14px">${escHtml(a?.nombre || '')}${a?.rpa ? ` · R.P.A. ${escHtml(a.rpa)}` : ''} · Liquidación emitida el ${fmtDate(new Date().toISOString().slice(0, 10))}</p>`;
@@ -184,6 +195,12 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
       doc.text(doc.splitTextToSize('Mediante el siguiente link o QR podrá acceder al listado de comprobantes ingresados por el administrador, correspondientes al período actual.', W / 2 - 32), M + W / 2 + 29, y + 3);
     } else doc.text(doc.splitTextToSize('Los comprobantes de cada gasto se consultan en el portal de vecinos.', W / 2 - 6), M + W / 2 + 2, y + 3);
     y += 28;
+    if (consorcio.url_reglamento) {
+      barra('REGLAMENTO DE COPROPIEDAD');
+      doc.addImage(await qrData(consorcio.url_reglamento), 'PNG', M + 2, y, 24, 24);
+      doc.setFontSize(7); doc.text(doc.splitTextToSize(`Mediante el siguiente link o QR podrá consultar el reglamento de copropiedad del consorcio: ${consorcio.url_reglamento}`, W - 34), M + 29, y + 3);
+      y += 28;
+    }
 
     // Remuneraciones
     if (sueldos.length) {
@@ -234,22 +251,32 @@ export async function imprimirResumenExpensas(liq: Liquidacion, consorcio: Conso
     y = Math.max(yA, fin()) + 3;
 
     barra('DATOS DE JUICIOS', '(Conf. Art. 10 inc h Ley Nº 941)');
-    texto('No hay juicios vigentes informados', 8, false, 105 - 25);
+    if (juicios.length) {
+      autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: [203, 213, 225], lineWidth: 0.15 }, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59] },
+        head: [['Carátula', 'Expediente', 'Juzgado', 'Objeto', 'Monto reclamado', 'Estado']], body: juicios.map((j) => [j.caratula, j.expediente || '', j.juzgado || '', j.objeto || '', j.monto_reclamado ? dinero(j.monto_reclamado) : '', j.comentario || '']), columnStyles: { 4: { halign: 'right' } } });
+      y = fin() + 3;
+    } else texto('No hay juicios vigentes informados', 8, false, 105 - 25);
+    if (ajustes.length) {
+      barra('MULTAS, RESERVAS Y AJUSTES');
+      autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: [203, 213, 225], lineWidth: 0.15 }, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59] },
+        head: [['UF', 'Depto.', 'Tipo', 'Concepto', 'Importe']], body: ajustes.map((x) => [String(x.unidades?.uf ?? '').padStart(3, '0'), x.unidades?.depto || '', TIPO_AJ[x.tipo] || x.tipo, x.concepto, dinero(x.monto_aplicado ?? x.monto)]), columnStyles: { 4: { halign: 'right' } } });
+      y = fin() + 3;
+    }
 
     // Estado de cuentas (apaisado)
     if (cs.length) {
       doc.addPage('a4', 'landscape'); y = M;
       const LW = 297 - 2 * M;
       doc.setFillColor(...TEAL); doc.rect(M, y, LW, 7, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('ESTADO DE CUENTAS Y PRORRATEO DE GASTOS', 148.5, y + 4.8, { align: 'center' }); doc.setTextColor(30, 41, 59); doc.setFont('helvetica', 'normal'); y += 9;
-      const headC = ['UF', 'Depto.', 'Propietario', 'Saldo\nAnterior', 'Pagos\nRecibidos', 'Deuda', 'Interés', 'Disponible', ...colsUsadas.flatMap((c) => [`% ${c.key.toUpperCase()}`, c.titulo]), 'Redon.', 'TOTAL', '2do vto'];
+      const headC = ['UF', 'Depto.', 'Propietario', 'Saldo\nAnterior', 'Pagos\nRecibidos', 'Deuda', 'Interés', 'Disponible', ...colsUsadas.flatMap((c) => [`% ${c.key.toUpperCase()}`, c.titulo]), ...(hayOtros ? ['Multas y\najustes'] : []), 'Redon.', 'TOTAL', '2do vto'];
       const bodyC = cs.map((c) => {
         const u = c.unidades || us.find((x) => x.id === c.unidad_id); const pag = pagosPorUnidad[c.unidad_id] || 0;
         const gastosCupon = round2(Number(c.monto_a) + Number(c.monto_b) + Number(c.monto_c) + Number(c.monto_d));
-        const red = round2(Number(c.total) - gastosCupon - Number(c.saldo_anterior) - Number(c.intereses));
+        const red = round2(Number(c.total) - gastosCupon - Number(c.saldo_anterior) - Number(c.intereses) - Number(c.otros || 0));
         return [String(u?.uf ?? '').padStart(3, '0'), u?.depto || '', u?.propietario || '', dinero(round2(Number(c.saldo_anterior) + pag)), pag ? dinero(pag) : '', Number(c.saldo_anterior) > 0 ? dinero(c.saldo_anterior) : '', Number(c.intereses) ? dinero(c.intereses) : '', Number(c.saldo_anterior) < 0 ? dinero(-Number(c.saldo_anterior)) : '',
-          ...colsUsadas.flatMap((k) => [`${coef(u, k.key).toFixed(2)}%`, dinero(c[`monto_${k.key}` as keyof Cupon])]), red ? dinero(red) : '', { content: dinero(c.total), styles: { fontStyle: 'bold', ...right } }, dinero(c.total_2do_venc)];
+          ...colsUsadas.flatMap((k) => [`${coef(u, k.key).toFixed(2)}%`, dinero(c[`monto_${k.key}` as keyof Cupon])]), ...(hayOtros ? [Number(c.otros) ? dinero(c.otros) : ''] : []), red ? dinero(red) : '', { content: dinero(c.total), styles: { fontStyle: 'bold', ...right } }, dinero(c.total_2do_venc)];
       });
-      const totC = ['', '', 'TOTALES', '', dinero(Object.values(pagosPorUnidad).reduce((x, v) => x + v, 0)), dinero(deudasAnteriores), dinero(totCup('intereses')), '', ...colsUsadas.flatMap((c) => ['100,00%', dinero(totCup(`monto_${c.key}` as keyof Cupon))]), '', dinero(totCup('total')), dinero(totCup('total_2do_venc'))];
+      const totC = ['', '', 'TOTALES', '', dinero(Object.values(pagosPorUnidad).reduce((x, v) => x + v, 0)), dinero(deudasAnteriores), dinero(totCup('intereses')), '', ...colsUsadas.flatMap((c) => ['100,00%', dinero(totCup(`monto_${c.key}` as keyof Cupon))]), ...(hayOtros ? [dinero(totCup('otros'))] : []), '', dinero(totCup('total')), dinero(totCup('total_2do_venc'))];
       const cstyles: Record<number, { halign: 'right' | 'left'; cellWidth?: number }> = { 0: { halign: 'left', cellWidth: 9 }, 1: { halign: 'left', cellWidth: 16 }, 2: { halign: 'left', cellWidth: 38 } };
       for (let i = 3; i < headC.length; i++) cstyles[i] = { halign: 'right' };
       autoTable(doc, { startY: y, margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 6.3, cellPadding: 0.8, lineColor: [203, 213, 225], lineWidth: 0.15, textColor: [30, 41, 59], overflow: 'ellipsize' }, headStyles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold', fontSize: 6.3, halign: 'right' },

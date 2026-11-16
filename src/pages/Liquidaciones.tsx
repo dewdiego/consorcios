@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GastoModal } from '@/components/GastoModal';
+import { PagarGasto } from '@/components/PagarGasto';
 import { EnvioExpensas } from '@/components/EnvioExpensas';
 import { ImportarLiquidacion } from '@/components/ImportarLiquidacion';
 import { ConfigExpensas } from '@/components/ConfigExpensas';
@@ -337,6 +338,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
     setLoading(false);
   };
   useEffect(() => { loadAll(); }, [liq.id]);
+  const [pagarGasto, setPagarGasto] = useState<Gasto | null>(null);
 
   const totalesPorCat = useMemo(() => {
     const t: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
@@ -574,10 +576,13 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
                           <p className="text-sm font-semibold text-slate-800">{fmtMoney(Number(g.monto))}</p>
                           <p className="text-[10px] text-slate-400">{['A', 'B', 'C', 'D'].filter((k) => Number(g[`monto_${k.toLowerCase()}` as keyof Gasto]) > 0).map((k) => `${k} ${fmtMoney(Number(g[`monto_${k.toLowerCase()}` as keyof Gasto]))}`).join(' · ') || g.categoria}</p>
                         </div>
-                        {abierta && <div className="flex gap-0.5 shrink-0">
-                          <button onClick={() => { setGastoEdit(g); setRubroNuevo(null); setGastoModal(true); }} title="Editar" className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
-                          <button onClick={() => quitarGasto(g)} title="Quitar del período" className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>
-                        </div>}
+                        <div className="flex gap-0.5 shrink-0 items-center">
+                          {!g.orden_pago_id && <button onClick={() => setPagarGasto(g)} className={`px-2 py-1 rounded text-[11px] font-semibold ${g.pagado ? 'text-slate-400 hover:bg-slate-100' : 'text-teal-700 bg-teal-50 hover:bg-teal-100'}`}>{g.pagado ? 'Pago' : 'Pagar'}</button>}
+                          {abierta && <>
+                            <button onClick={() => { setGastoEdit(g); setRubroNuevo(null); setGastoModal(true); }} title="Editar" className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
+                            <button onClick={() => quitarGasto(g)} title="Quitar del período" className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>
+                          </>}
+                        </div>
                       </div>
                     ))}
                     {items.length > 0 && <div className="flex justify-end px-4 py-1.5 border-t border-slate-200 bg-slate-50 rounded-b-lg text-xs text-slate-600">Total categoría: <b className="ml-1 text-slate-800">{fmtMoney(sub)}</b></div>}
@@ -645,6 +650,7 @@ function LiquidacionDetalle({ liq: liqInicial, usuario, onBack }: { liq: Liquida
       )}
 
       {/* Modal nuevo gasto */}
+      <PagarGasto gasto={pagarGasto} onClose={() => setPagarGasto(null)} onDone={loadAll} />
       <GastoModal open={gastoModal} onClose={() => { setGastoModal(false); setGastoEdit(null); }}
         consorcioId={liq.consorcio_id} liquidacionId={liq.id} onSaved={loadAll} gasto={gastoEdit} rubroInicial={rubroNuevo} />
 

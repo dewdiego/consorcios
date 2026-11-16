@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { leerFactura } from '@/lib/factura';
 import { Calendar, Clock, HelpCircle, Plus, ShoppingCart, StickyNote, Truck, X } from 'lucide-react';
 import { supabase, type Gasto, type Proveedor, type Rubro } from '@/lib/supabase';
 import { Button } from '@/components/ui';
@@ -59,6 +60,29 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [leido, setLeido] = useState('');
+
+  /** Al adjuntar un PDF se leen sus datos y se completan los campos que todavía están vacíos. */
+  const elegirArchivo = async (f: File | null) => {
+    setArchivo(f); setLeido('');
+    if (!f || f.type !== 'application/pdf') return;
+    try {
+      const { extraerTextoPdf } = await import('@/lib/pdfText');
+      const fac = leerFactura(await extraerTextoPdf(f));
+      const prov = fac.cuit ? proveedores.find((p) => (p.cuit || '').replace(/\D/g, '') === fac.cuit) : undefined;
+      const datos = [fac.tipo, fac.comprobante, fac.fecha && fac.fecha.split('-').reverse().join('/'), fac.total && `$ ${fac.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`].filter(Boolean);
+      if (!datos.length) { setLeido('No se pudieron leer datos de este PDF (puede ser una imagen escaneada): completalo a mano.'); return; }
+      setForm((x) => {
+        const sinMonto = !num(x.monto_a) && !num(x.monto_b) && !num(x.monto_c) && !num(x.monto_d);
+        return { ...x,
+          proveedor_id: x.proveedor_id || prov?.id || '',
+          tipo_comprobante: fac.tipo && !x.comprobante ? fac.tipo : x.tipo_comprobante, comprobante: x.comprobante || fac.comprobante || '',
+          fecha: fac.fecha && !gasto ? fac.fecha : x.fecha, monto_a: sinMonto && fac.total ? String(fac.total) : x.monto_a,
+        };
+      });
+      setLeido(`Leído de la factura: ${datos.join(' · ')}${prov ? ` · ${prov.nombre}` : fac.cuit ? ` · CUIT ${fac.cuit} (no está en Proveedores${fac.razonSocial ? `: ${fac.razonSocial}` : ''})` : ''}. Revisá antes de guardar.`);
+    } catch { setLeido('No se pudo leer el PDF: completalo a mano.'); }
+  };
 
   const cargarListas = async () => {
     const [p, r] = await Promise.all([
@@ -71,7 +95,7 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved,
 
   useEffect(() => {
     if (!open) return;
-    setTab('gasto'); setError(''); setNuevoProv(null); setArchivo(null);
+    setTab('gasto'); setError(''); setNuevoProv(null); setArchivo(null); setLeido('');
     if (gasto) {
       setForm({
         proveedor_id: gasto.proveedor_id || '', rubro_id: gasto.rubro_id || '', descripcion: gasto.descripcion, periodo_facturado: gasto.periodo_facturado || periodoActual(),
@@ -226,7 +250,7 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved,
                   <label className={`${inputCls} cursor-pointer flex items-center gap-2 truncate`}>
                     <span className="text-teal-600 font-medium shrink-0">{archivo ? 'Cambiar' : 'Adjuntar'}</span>
                     <span className="text-slate-500 truncate text-xs">{archivo ? archivo.name : 'ningún archivo'}</span>
-                    <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
+                    <input type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => elegirArchivo(e.target.files?.[0] || null)} />
                   </label>
                 </Campo>
 
@@ -251,6 +275,7 @@ export function GastoModal({ open, onClose, consorcioId, liquidacionId, onSaved,
                 <textarea rows={8} className={`${inputCls} resize-y`} value={form.notas} onChange={(e) => set('notas', e.target.value)} placeholder="Observaciones del gasto (no se muestran en la expensa)" />
               </Campo>
             )}
+            {leido && <p className="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-1.5 mt-3">{leido}</p>}
             {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
           </div>
         </div>

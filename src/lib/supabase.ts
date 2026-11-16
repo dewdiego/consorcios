@@ -28,7 +28,7 @@ export type Consorcio = {
   telefono: string | null; email: string | null; cantidad_pisos: number; activo: boolean;
   banco: string | null; cbu: string | null; fecha_asamblea: string | null; fecha_mandato_hasta: string | null; administracion_id: string | null;
   monto_fijo_deudores: number; redondeo: 'ninguno' | 'unidad' | 'decena' | 'centena'; venc_no_habil: 'no_modificar' | 'siguiente_habil' | 'anterior_habil';
-  url_comprobantes: string | null; mostrar_facturas_portal: boolean;
+  url_comprobantes: string | null; mostrar_facturas_portal: boolean; url_reglamento?: string | null;
   dia_vencimiento_1: number; dia_vencimiento_2: number;
   recargo_2do_venc_pct: number; interes_mora_mensual_pct: number;
   honorarios_mensuales: number; notas: string | null; created_at: string;
@@ -105,7 +105,7 @@ export type Provision = {
 export type Cupon = {
   id: string; liquidacion_id: string; consorcio_id: string; unidad_id: string;
   monto_a: number; monto_b: number; monto_c: number; monto_d: number;
-  saldo_anterior: number; intereses: number; total: number; total_2do_venc: number;
+  saldo_anterior: number; intereses: number; otros?: number; total: number; total_2do_venc: number;
   estado: 'pendiente' | 'parcial' | 'pagado'; created_at: string;
   unidades?: Unidad; liquidaciones?: Liquidacion;
 };
@@ -264,3 +264,56 @@ export type Encuesta = {
 };
 
 export type EncuestaOpcion = { id: string; encuesta_id: string; texto: string; votos: number };
+
+// ==================== Paridad, tanda 1 ====================
+export type AjusteUnidad = {
+  id: string; consorcio_id: string; unidad_id: string; liquidacion_id: string | null; fecha: string;
+  tipo: 'cargo' | 'descuento' | 'quita_deuda' | 'quita_intereses' | 'multa' | 'reserva' | 'plan';
+  concepto: string; monto: number; monto_aplicado: number | null; origen: string | null; origen_id: string | null;
+  creado_por: string | null; created_at: string; unidades?: Unidad; liquidaciones?: Liquidacion;
+};
+export type CobroNoIdentificado = {
+  id: string; consorcio_id: string; cuenta_id: string | null; fecha: string; monto: number; metodo: string; descripcion: string | null;
+  estado: 'pendiente' | 'identificado'; unidad_id: string | null; pago_id: string | null; created_at: string; unidades?: Unidad;
+};
+export type PagoInformado = {
+  id: string; consorcio_id: string; unidad_id: string; cupon_id: string | null; fecha: string; monto: number; metodo: string;
+  referencia: string | null; archivo_path: string | null; email: string | null; estado: 'pendiente' | 'aprobado' | 'rechazado';
+  motivo: string | null; pago_id: string | null; created_at: string; unidades?: Unidad;
+};
+export type Juicio = {
+  id: string; consorcio_id: string; unidad_id: string | null; caratula: string; expediente: string | null; juzgado: string | null;
+  objeto: string | null; monto_reclamado: number | null; comentario: string | null; estado: 'activo' | 'finalizado';
+};
+export type Falta = {
+  id: string; categoria: string | null; nombre: string; severidad: 'leve' | 'media' | 'grave'; nota: string | null;
+  monto_fijo: boolean; monto: number; monto_max: number | null; dias_descargo: number;
+};
+export type Infraccion = {
+  id: string; consorcio_id: string; unidad_id: string; falta_id: string | null; tipo: 'multa' | 'apercibimiento'; fecha: string;
+  descripcion: string; monto: number; vence_descargo: string | null;
+  estado: 'cargada' | 'notificada' | 'en_revision' | 'confirmada' | 'descartada'; notificada_at: string | null;
+  descargo: string | null; descargo_at: string | null; resolucion: string | null; archivo_path: string | null;
+  unidades?: Unidad; faltas?: Falta;
+};
+export type HorarioAmenity = { dia: number; desde: string; hasta: string; cupo: number };
+export type Amenity = {
+  id: string; consorcio_id: string; nombre: string; mensaje: string | null; reservable: boolean;
+  max_dia: number; max_semana: number; max_mes: number; dias_anticipacion: number; dias_cancelacion: number; costo: number;
+  horarios: HorarioAmenity[];
+};
+export type Reserva = {
+  id: string; amenity_id: string; consorcio_id: string; unidad_id: string; fecha: string; desde: string; hasta: string;
+  email: string | null; nombre: string | null; costo: number; estado: 'activa' | 'cancelada'; created_at: string;
+  unidades?: Unidad; amenities?: Amenity;
+};
+export type Reunion = {
+  id: string; consorcio_id: string; titulo: string; descripcion: string | null; fecha: string; hora: string;
+  plataforma: 'meet' | 'zoom' | 'otra' | 'presencial'; link: string | null; destinatarios: 'propietarios' | 'todos' | 'consejo';
+  notificada_at: string | null;
+};
+export type Invitado = {
+  id: string; consorcio_id: string; unidad_id: string | null; nombre: string; documento: string | null; patente: string | null;
+  vehiculo: string | null; email: string | null; desde: string; hasta: string | null; activo: boolean; unidades?: Unidad;
+};
+export type Acceso = { id: string; consorcio_id: string; invitado_id: string; entrada: string; salida: string | null; nota: string | null; invitados?: Invitado };

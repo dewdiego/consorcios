@@ -36,6 +36,13 @@ import { Calendario } from '@/pages/Calendario';
 import { Archivos } from '@/pages/Archivos';
 import { Telefonos } from '@/pages/Telefonos';
 import { Encuestas } from '@/pages/Encuestas';
+import { Cobranzas } from '@/pages/Cobranzas';
+import { Ajustes } from '@/pages/Ajustes';
+import { Juicios } from '@/pages/Juicios';
+import { Infracciones } from '@/pages/Infracciones';
+import { Amenities } from '@/pages/Amenities';
+import { Reuniones } from '@/pages/Reuniones';
+import { Invitados } from '@/pages/Invitados';
 
 function Pages({ page, onNavigate }: { page: PageKey; onNavigate: (p: PageKey) => void }) {
   switch (page) {
@@ -73,6 +80,13 @@ function Pages({ page, onNavigate }: { page: PageKey; onNavigate: (p: PageKey) =
     case 'archivos': return <Archivos />;
     case 'telefonos': return <Telefonos />;
     case 'encuestas': return <Encuestas />;
+    case 'exp_cobranzas': return <Cobranzas />;
+    case 'exp_ajustes': return <Ajustes />;
+    case 'juicios': return <Juicios />;
+    case 'infracciones': return <Infracciones />;
+    case 'amenities': return <Amenities />;
+    case 'reuniones': return <Reuniones />;
+    case 'invitados': return <Invitados />;
   }
 }
 

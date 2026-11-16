@@ -56,11 +56,12 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'error' | 'warn'; texto: string } | null>(null);
   const [conPush, setConPush] = useState(true);
+  const [programar, setProgramar] = useState(''); // fecha y hora local; vacío = sale ahora
 
   const load = async () => {
     setLoading(true);
     const [{ data }, { data: adm }] = await Promise.all([
-      supabase.from('cola_envios').select('id, unidad_id, email, nombre, estado, error, enviado_at, intentos').eq('liquidacion_id', liq.id).order('created_at'),
+      supabase.from('cola_envios').select('id, unidad_id, email, nombre, estado, error, enviado_at, intentos, enviar_desde').eq('liquidacion_id', liq.id).order('created_at'),
       supabase.from('administracion').select('nombre').limit(1).maybeSingle(),
     ]);
     setCola((data as ItemCola[]) || []);
@@ -113,22 +114,35 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
   });
   const sinMail = cupones.filter((c) => c.unidades && !c.unidades.propietario_email && !(c.unidades.alquilada && c.unidades.inquilino_email));
 
+  // ---- Envío programado: se puede cancelar mientras no haya salido ----
+  const programados = (cola as { estado: string; enviar_desde?: string | null }[]).filter((c) => c.estado === 'pendiente' && c.enviar_desde && new Date(c.enviar_desde).getTime() > Date.now());
+  const cancelarProgramado = () => run(async () => {
+    const { error } = await supabase.from('cola_envios').delete().eq('liquidacion_id', liq.id).eq('estado', 'pendiente').not('enviar_desde', 'is', null);
+    if (error) throw new Error(error.message);
+    const { count } = await supabase.from('cola_envios').select('id', { count: 'exact', head: true }).eq('liquidacion_id', liq.id);
+    if (!count) await supabase.from('liquidaciones').update({ estado: 'cerrada', enviada_at: null }).eq('id', liq.id);
+    return 'Envío programado cancelado.';
+  });
+
   // ---- Encolar ----
   const encolar = () => run(async () => {
     if (liq.estado === 'abierta') throw new Error('Primero cerrá el período: sólo se envían liquidaciones cerradas.');
     if (!liq.pdf_path) throw new Error('Adjuntá el PDF de la liquidación antes de enviar.');
     if (destinatarios.length === 0) throw new Error('Ninguna unidad tiene mail cargado. Cargalos en Unidades.');
     const periodo = periodoLabel(liq.periodo);
+    const desde = programar ? new Date(programar) : null;
+    if (desde && desde.getTime() < Date.now()) throw new Error('La fecha programada ya pasó. Borrala para enviar ahora.');
+    const enviar_desde = desde ? desde.toISOString() : null;
     const conApp = conPush ? await emailsConApp(supabase) : new Set<string>();
     const filasPush = destinatarios.filter((d) => conApp.has(d.email)).map(({ cupon, email, nombre }) => ({
-      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'push', html: null,
+      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'push', html: null, enviar_desde,
       asunto: `Expensas ${periodo} - ${consorcioNombre}`,
       push_titulo: `Expensas ${periodo} · ${consorcioNombre}`,
       push_cuerpo: `UF ${cupon.unidades?.uf}: ${fmtMoney(Number(cupon.total))} hasta el ${fmtDate(liq.fecha_vencimiento_1)}. Tocá para ver la liquidación.`,
       push_url: PORTAL_URL,
     }));
     const filas = destinatarios.map(({ cupon, email, nombre }) => ({
-      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'mail', adjunto_path: liq.pdf_path,
+      liquidacion_id: liq.id, consorcio_id: liq.consorcio_id, unidad_id: cupon.unidad_id, email, nombre, canal: 'mail', adjunto_path: liq.pdf_path, enviar_desde,
       asunto: `Expensas ${periodo} - ${consorcioNombre} - UF ${cupon.unidades?.uf}`,
       adjunto_nombre: `Expensas_${liq.periodo}_${consorcioNombre.replace(/[^\w]+/g, '_')}.pdf`,
       html: armarHtml({
@@ -145,6 +159,7 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
       await supabase.from('liquidaciones').update({ estado: 'enviada', enviada_at: new Date().toISOString() }).eq('id', liq.id);
     }
     await notificar('info', `Envío de expensas ${liq.periodo} encolado`, `${consorcioNombre}: ${filas.length} destinatarios.`);
+    if (desde) return `Envío programado para el ${desde.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} hs: ${filas.length} mails${filasPush.length ? ` y ${filasPush.length} avisos por la app` : ''}. Para cancelarlo, borralo desde Envíos de mail antes de esa hora.`;
     const res = await procesarCola();
     return `Encolados ${filas.length} mails${filasPush.length ? ` y ${filasPush.length} avisos por la app` : ''}. ${res}`;
   });
@@ -198,6 +213,12 @@ export function EnvioExpensas({ liq, cupones, consorcioNombre, onChange }: {
             <input type="checkbox" className="rounded" checked={conPush} onChange={(e) => setConPush(e.target.checked)} />
             Avisar también por la app a quienes la tienen instalada
           </label>
+          <label className="flex items-center gap-2 text-xs text-slate-600 mb-3 flex-wrap">
+            Programar para
+            <input type="datetime-local" className="px-2 py-1 rounded border border-slate-200 text-xs" value={programar} onChange={(e) => setProgramar(e.target.value)} />
+            <span className="text-slate-400">(vacío = sale ahora)</span>
+          </label>
+          {programados.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5 mb-3">Hay {programados.length} envío(s) programado(s) para el {new Date(programados[0].enviar_desde!).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} hs. <button className="underline font-medium" onClick={cancelarProgramado}>Cancelar</button></p>}
           <div className="flex gap-2 flex-wrap">
             <Button onClick={encolar} disabled={busy || liq.estado === 'abierta' || !liq.pdf_path}><Send size={15} /> {cola.length ? 'Enviar a los que faltan' : 'Enviar expensas'}</Button>
             {cuenta('pendiente') > 0 && <Button variant="secondary" onClick={() => run(procesarCola)} disabled={busy}><RefreshCw size={15} /> Procesar ahora</Button>}

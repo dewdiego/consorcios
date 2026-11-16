@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import {
   Archive, BarChart3, Bell, Building2, CalendarDays, ChevronDown, ChevronRight, ClipboardList,
   FileBarChart, LayoutDashboard, LogOut, Megaphone, Menu, Home, Phone, Receipt, Settings, ShoppingCart,
-  Truck, Users, Vote, WalletCards, Wrench, Zap, Hammer
+  Truck, Users, Vote, WalletCards, Wrench, Zap, Hammer, CalendarCheck, Gavel, ShieldAlert, UserCheck, Video
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { LogoMarca, LogoNombre } from '@/components/Logo';
@@ -20,6 +20,7 @@ export type PageKey =
   | 'compras'
   | 'unidades'
   | 'mantenimientos' | 'trabajos'
+  | 'exp_cobranzas' | 'exp_ajustes' | 'juicios' | 'infracciones' | 'amenities' | 'reuniones' | 'invitados'
   | 'exp_liquidaciones' | 'exp_gastos' | 'exp_provisiones' | 'exp_ordenes_pago' | 'exp_cheques' | 'exp_planes' | 'exp_ctacte'
   | 'sueldos'
   | 'contabilidad'
@@ -59,6 +60,8 @@ const NAV: NavEntry[] = [
   { label: 'Trabajos en unidades', icon: <Hammer size={17} />, key: 'trabajos', porConsorcio: true },
   { label: 'Expensas', icon: <Receipt size={17} />, porConsorcio: true, children: [
     { key: 'exp_liquidaciones', label: 'Liquidaciones' },
+    { key: 'exp_cobranzas', label: 'Cobranzas' },
+    { key: 'exp_ajustes', label: 'Ajustes' },
     { key: 'exp_gastos', label: 'Gastos pendientes' },
     { key: 'exp_provisiones', label: 'Provisiones' },
     { key: 'exp_ordenes_pago', label: 'Pago a proveedores' },
@@ -66,6 +69,11 @@ const NAV: NavEntry[] = [
     { key: 'exp_planes', label: 'Planes de pago' },
     { key: 'exp_ctacte', label: 'Cuentas corrientes' },
   ] },
+  { label: 'Infracciones', icon: <ShieldAlert size={17} />, key: 'infracciones', porConsorcio: true },
+  { label: 'Reservas', icon: <CalendarCheck size={17} />, key: 'amenities', porConsorcio: true },
+  { label: 'Invitados', icon: <UserCheck size={17} />, key: 'invitados', porConsorcio: true },
+  { label: 'Reuniones', icon: <Video size={17} />, key: 'reuniones', porConsorcio: true },
+  { label: 'Juicios', icon: <Gavel size={17} />, key: 'juicios', porConsorcio: true },
   { label: 'Sueldos', icon: <WalletCards size={17} />, key: 'sueldos', porConsorcio: true },
   { label: 'Contabilidad', icon: <BarChart3 size={17} />, key: 'contabilidad', porConsorcio: true },
   { label: 'Calendario', icon: <CalendarDays size={17} />, key: 'calendario' },
@@ -93,7 +101,9 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'exp_liquidaciones', label: 'Liquidaciones' },
     { key: 'exp_gastos', label: 'Gastos pendientes' },
     { key: 'exp_provisiones', label: 'Provisiones' },
-    { key: 'exp_ctacte', label: 'Cobranzas y cuentas corrientes' },
+    { key: 'exp_cobranzas', label: 'Cobranzas' },
+    { key: 'exp_ctacte', label: 'Cuentas corrientes' },
+    { key: 'exp_ajustes', label: 'Ajustes por unidad' },
     { key: 'exp_planes', label: 'Planes de pago' },
     { key: 'acciones_masivas', label: 'Acciones masivas' },
   ] },
@@ -109,6 +119,13 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'reclamos', label: 'Reclamos' },
     { key: 'mantenimientos', label: 'Mantenimientos' },
     { key: 'trabajos', label: 'Trabajos en unidades' },
+  ] },
+  { label: 'Convivencia', icon: <CalendarCheck size={17} />, porConsorcio: true, children: [
+    { key: 'amenities', label: 'Amenities y reservas' },
+    { key: 'infracciones', label: 'Infracciones y multas' },
+    { key: 'invitados', label: 'Invitados y accesos' },
+    { key: 'reuniones', label: 'Reuniones' },
+    { key: 'juicios', label: 'Juicios' },
   ] },
   { label: 'Comunicación', icon: <Megaphone size={17} />, children: [
     { key: 'noticias', label: 'Comunicados' },
@@ -138,6 +155,7 @@ export const PAGE_TITLES: Record<PageKey, string> = {
   prov_listado: 'Proveedores', prov_movimientos: 'Movimientos históricos', prov_documentos: 'Certificación de proveedores',
   reportes: 'Reportes', noticias: 'Noticias', consultas: 'Consultas', reclamos: 'Reclamos', compras: 'Compras',
   unidades: 'Unidades', mantenimientos: 'Mantenimientos y controles', trabajos: 'Trabajos en unidades',
+  exp_cobranzas: 'Cobranzas', exp_ajustes: 'Ajustes por unidad', juicios: 'Juicios', infracciones: 'Infracciones', amenities: 'Amenities y reservas', reuniones: 'Reuniones', invitados: 'Invitados y accesos',
   exp_liquidaciones: 'Expensas · Liquidaciones', exp_gastos: 'Gastos pendientes', exp_provisiones: 'Provisiones',
   exp_ordenes_pago: 'Pago a proveedores', exp_cheques: 'Gestión de cheques', exp_planes: 'Planes de pago',
   exp_ctacte: 'Cuentas corrientes', sueldos: 'Sueldos', contabilidad: 'Contabilidad',
@@ -177,7 +195,7 @@ export function Layout({ page, onNavigate, children }: { page: PageKey; onNaviga
       <aside className={`fixed lg:sticky top-0 h-screen w-64 flex flex-col z-40 transition-transform overflow-y-auto ${amel ? 'bg-[#eef3fb] text-slate-700 border-r border-[#d6e2f5]' : 'bg-[#12284f] text-slate-200'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className={`px-5 py-4 flex items-center gap-2 ${amel ? 'bg-gradient-to-br from-[#12284f] to-[#1b4a9e]' : 'border-b border-white/10'}`}>
           <LogoMarca size={34} claro />
-          <LogoNombre claro sub="Administración de consorcios" />
+          <LogoNombre claro />
         </div>
         <nav className={`flex-1 py-3 ${amel ? 'px-3 space-y-0.5' : ''}`}>
           {nav.map((entry) => {

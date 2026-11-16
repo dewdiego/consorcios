@@ -13,7 +13,7 @@
     cobros menores, pendiente si no hay cobros.
 */
 
-import { supabase, type Consorcio, type Cupon, type Gasto, type Unidad, type Empleado, type Parametro, type Proveedor, type ReciboLinea } from './supabase';
+import { supabase, type AjusteUnidad, type Consorcio, type Cupon, type Gasto, type Unidad, type Empleado, type Parametro, type Proveedor, type ReciboLinea } from './supabase';
 
 export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -66,7 +66,7 @@ export type SaldoUnidad = {
 /** Saldos de todas las UF de un consorcio, opcionalmente excluyendo una liquidación (la que se está generando). */
 export async function saldosPorUnidad(consorcioId: string, excluirLiquidacionId?: string): Promise<Map<string, SaldoUnidad>> {
   const [cuponesRes, pagosRes] = await Promise.all([
-    supabase.from('cupones').select('unidad_id, total, liquidacion_id, liquidaciones!inner(estado)').eq('consorcio_id', consorcioId),
+    supabase.from('cupones').select('unidad_id, total, saldo_anterior, liquidacion_id, liquidaciones!inner(estado, periodo)').eq('consorcio_id', consorcioId),
     supabase.from('pagos').select('unidad_id, monto').eq('consorcio_id', consorcioId),
   ]);
   const map = new Map<string, SaldoUnidad>();
@@ -75,10 +75,16 @@ export async function saldosPorUnidad(consorcioId: string, excluirLiquidacionId?
     if (!s) { s = { unidad_id: id, totalCupones: 0, totalPagado: 0, saldo: 0 }; map.set(id, s); }
     return s;
   };
-  for (const c of (cuponesRes.data || []) as unknown as { unidad_id: string; total: number; liquidacion_id: string; liquidaciones: { estado: string } }[]) {
-    if (excluirLiquidacionId && c.liquidacion_id === excluirLiquidacionId) continue;
-    if (c.liquidaciones.estado === 'abierta') continue; // sólo liquidaciones cerradas generan deuda exigible
-    get(c.unidad_id).totalCupones += Number(c.total);
+  // Cada cupón ya trae adentro el saldo anterior: para no contar dos veces la deuda arrastrada, del primer cupón de cada
+  // unidad se toma el total completo (trae el saldo de arranque) y de los siguientes sólo lo nuevo del período.
+  type FilaCupon = { unidad_id: string; total: number; saldo_anterior: number; liquidacion_id: string; liquidaciones: { estado: string; periodo: string } };
+  const cerrados = ((cuponesRes.data || []) as unknown as FilaCupon[])
+    .filter((c) => c.liquidaciones.estado !== 'abierta' && !(excluirLiquidacionId && c.liquidacion_id === excluirLiquidacionId))
+    .sort((x, y) => x.liquidaciones.periodo.localeCompare(y.liquidaciones.periodo));
+  const conPrimero = new Set<string>();
+  for (const c of cerrados) {
+    const primero = !conPrimero.has(c.unidad_id); conPrimero.add(c.unidad_id);
+    get(c.unidad_id).totalCupones += primero ? Number(c.total) : Number(c.total) - Number(c.saldo_anterior);
   }
   for (const p of (pagosRes.data || []) as { unidad_id: string; monto: number }[]) {
     get(p.unidad_id).totalPagado += Number(p.monto);
@@ -129,6 +135,15 @@ export function ajustarVencimiento(fecha: string, modo: string | null | undefine
   return d.toISOString().slice(0, 10);
 }
 
+/** Importe con signo que un ajuste suma al cupón. Las quitas se calculan sobre la deuda e intereses del momento. */
+export function importeAjuste(a: AjusteUnidad, saldoAnterior: number, intereses: number): number {
+  const m = Math.abs(Number(a.monto) || 0);
+  if (a.tipo === 'descuento') return -m;
+  if (a.tipo === 'quita_intereses') return -round2(m > 0 ? Math.min(m, intereses) : intereses);
+  if (a.tipo === 'quita_deuda') { const tope = round2(Math.max(0, saldoAnterior) + intereses); return -round2(m > 0 ? Math.min(m, tope) : tope); }
+  return m; // cargo, multa, reserva, plan
+}
+
 export async function generarCupones(liquidacionId: string): Promise<ResultadoLiquidacion> {
   const { data: liq, error: liqErr } = await supabase
     .from('liquidaciones').select('*, consorcios(*)').eq('id', liquidacionId).single();
@@ -153,6 +168,10 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
   const recargoPct = Number(consorcio.recargo_2do_venc_pct) || 0;
   const interesPct = Number(consorcio.interes_mora_mensual_pct) || 0;
   const saldos = await saldosPorUnidad(liq.consorcio_id, liquidacionId);
+  // Ajustes por unidad: los de esta expensa y los pendientes (sin expensa asignada todavía)
+  const { data: ajData } = await supabase.from('ajustes_unidad').select('*').eq('consorcio_id', liq.consorcio_id).or(`liquidacion_id.eq.${liquidacionId},liquidacion_id.is.null`);
+  const ajustes = (ajData || []) as AjusteUnidad[];
+  const aplicados: { id: string; monto_aplicado: number }[] = [];
 
   const filas = us.map((u) => {
     const monto_a = round2(totalPorCat.A * Number(u.coef_a) / 100);
@@ -163,11 +182,16 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
     // Interés por mora + monto fijo a deudores (gastos administrativos del reclamo), sólo si debe
     const intereses = saldo_anterior > 0 ? round2(saldo_anterior * interesPct / 100 + Number(consorcio.monto_fijo_deudores || 0)) : 0;
     const gastosPeriodo = round2(monto_a + monto_b + monto_c + monto_d);
-    const total = redondear(round2(gastosPeriodo + saldo_anterior + intereses), consorcio.redondeo);
-    const total_2do_venc = redondear(round2(gastosPeriodo * (1 + recargoPct / 100) + saldo_anterior + intereses), consorcio.redondeo);
+    let otros = 0;
+    for (const a of ajustes.filter((x) => x.unidad_id === u.id)) {
+      const m = importeAjuste(a, saldo_anterior, intereses);
+      aplicados.push({ id: a.id, monto_aplicado: m }); otros = round2(otros + m);
+    }
+    const total = redondear(round2(gastosPeriodo + saldo_anterior + intereses + otros), consorcio.redondeo);
+    const total_2do_venc = redondear(round2(gastosPeriodo * (1 + recargoPct / 100) + saldo_anterior + intereses + otros), consorcio.redondeo);
     return {
       liquidacion_id: liquidacionId, consorcio_id: liq.consorcio_id, unidad_id: u.id,
-      monto_a, monto_b, monto_c, monto_d, saldo_anterior, intereses, total, total_2do_venc,
+      monto_a, monto_b, monto_c, monto_d, saldo_anterior, intereses, otros, total, total_2do_venc,
       estado: 'pendiente' as const,
     };
   });
@@ -178,6 +202,7 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
   const { error: insErr } = await supabase.from('cupones').insert(filas);
   if (insErr) throw new Error(`No se pudieron generar los cupones: ${insErr.message}`);
 
+  for (const a of aplicados) await supabase.from('ajustes_unidad').update({ monto_aplicado: a.monto_aplicado }).eq('id', a.id);
   const totalDistribuido = round2(filas.reduce((a, f) => a + f.total, 0));
   const { error: updErr } = await supabase.from('liquidaciones').update({
     total_gastos: totalGastos,
@@ -193,6 +218,9 @@ export async function generarCupones(liquidacionId: string): Promise<ResultadoLi
 /** Cierra una liquidación (genera cupones si faltan y congela el período). */
 export async function cerrarLiquidacion(liquidacionId: string, usuario: string): Promise<ResultadoLiquidacion> {
   const res = await generarCupones(liquidacionId);
+  // Los ajustes pendientes quedan atados a esta expensa (no vuelven a entrar en la siguiente)
+  const { data: l } = await supabase.from('liquidaciones').select('consorcio_id').eq('id', liquidacionId).single();
+  if (l) await supabase.from('ajustes_unidad').update({ liquidacion_id: liquidacionId }).eq('consorcio_id', l.consorcio_id).is('liquidacion_id', null);
   const { error } = await supabase.from('liquidaciones').update({
     estado: 'cerrada', cerrada_por: usuario, cerrada_at: new Date().toISOString(),
   }).eq('id', liquidacionId);
