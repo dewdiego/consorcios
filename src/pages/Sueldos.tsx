@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Calculator, CheckCheck, Download, FileText, Layers, ListChecks, Plus, Pencil, Printer, Receipt, Save, Trash2, Users, WalletCards } from 'lucide-react';
+import { Calculator, CheckCheck, Download, FileText, Layers, ListChecks, Plus, Pencil, Printer, Receipt, Save, Send, Trash2, Users, WalletCards } from 'lucide-react';
+import { mailHtml } from '@/lib/avisos';
+import { LibroSueldos } from '@/components/LibroSueldos';
+import { PORTAL_URL } from '@/lib/config';
 import { supabase, type Administracion, type ConvenioEscala, type Empleado, type Parametro, type ReciboLinea, type Rubro, type SueldoLiquidacion } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Spinner, Table, Td, Tabs, Textarea } from '@/components/ui';
@@ -21,7 +24,7 @@ import { AvisosNormativa, EscalaRapida, FuentesNormativa, useNormativa } from '@
 */
 
 const cargos = ['encargado', 'ayudante', 'suplente', 'personal_limpieza', 'vigilancia', 'otro'];
-const empVacio = { nombre: '', cuil: '', cargo: 'encargado', categoria: '', usar_escala: false, sueldo_basico: '', antiguedad_fecha: '', fecha_egreso: '', vive_en_edificio: false, jornada: 'completa', obra_social: '', cbu: '', adic_titulo: false, adic_vidrios: false, adic_residuos: false, adic_jardin: false, activo: true };
+const empVacio = { nombre: '', cuil: '', cargo: 'encargado', categoria: '', usar_escala: false, sueldo_basico: '', antiguedad_fecha: '', fecha_egreso: '', vive_en_edificio: false, jornada: 'completa', obra_social: '', cbu: '', email: '', adic_titulo: false, adic_vidrios: false, adic_residuos: false, adic_jardin: false, activo: true };
 type FilaPlanilla = { horas_50: string; horas_100: string; dias_vacaciones: string; adicionales: string; no_remunerativo: string; descuentos: string };
 type NovForm = { basico: string; adicionales: string; no_remunerativo: string; horas_50: string; horas_100: string; sac: boolean; sac_monto: string; dias_vacaciones: string; descuentos: string; observaciones: string };
 
@@ -40,6 +43,7 @@ export function Sueldos() {
   const [loading, setLoading] = useState(true);
   const [periodo, setPeriodo] = useState(periodoActual());
   const [msg, setMsg] = useState('');
+  const [lsd, setLsd] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [empModal, setEmpModal] = useState(false);
@@ -231,7 +235,7 @@ export function Sueldos() {
       consorcio_id: consorcio.id, nombre: empForm.nombre.trim(), cuil: empForm.cuil || null, cargo: empForm.cargo, categoria: empForm.categoria || null,
       usar_escala: empForm.usar_escala, sueldo_basico: parseFloat(empForm.sueldo_basico) || 0, antiguedad_fecha: empForm.antiguedad_fecha || null,
       fecha_egreso: empForm.fecha_egreso || null, vive_en_edificio: empForm.vive_en_edificio, jornada: empForm.jornada, obra_social: empForm.obra_social || null,
-      cbu: empForm.cbu || null, adic_titulo: empForm.adic_titulo, adic_vidrios: empForm.adic_vidrios, adic_residuos: empForm.adic_residuos, adic_jardin: empForm.adic_jardin, activo: empForm.activo,
+      cbu: empForm.cbu || null, email: empForm.email.trim().toLowerCase() || null, adic_titulo: empForm.adic_titulo, adic_vidrios: empForm.adic_vidrios, adic_residuos: empForm.adic_residuos, adic_jardin: empForm.adic_jardin, activo: empForm.activo,
     };
     const { error } = editingEmp ? await supabase.from('empleados').update(payload).eq('id', editingEmp.id) : await supabase.from('empleados').insert(payload);
     if (error) throw new Error(error.message);
@@ -271,6 +275,25 @@ export function Sueldos() {
       <p class="chico mut">Fecha de pago: ${l.fecha_pago ? fmtDate(l.fecha_pago) : '____/____/______'} · Contribuciones patronales del período: ${fmtMoney(Number(l.contribuciones))} (no se descuentan al empleado).</p>
       <div class="firma"><div>Firma del empleador</div><div>Recibí conforme · ${escHtml(e.nombre)}</div></div>`;
   };
+  /** Recibo para el cuerpo del mail (estilos en línea: los clientes de correo ignoran las hojas de estilo). */
+  const mailRecibo = (l: SueldoLiquidacion) => {
+    const e = l.empleados!; const td = 'padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:13px'; const n = `${td};text-align:right;white-space:nowrap`;
+    const filas = (l.detalle || []).map((x) => `<tr><td style="${td}">${escHtml(x.concepto)}</td><td style="${n}">${x.tipo === 'desc' ? '' : fmtMoney(x.monto)}</td><td style="${n}">${x.tipo === 'desc' ? fmtMoney(x.monto) : ''}</td></tr>`).join('');
+    return mailHtml(`Recibo de haberes · ${periodoLabel(l.periodo)}`, `${consorcio!.nombre} · ${e.nombre}${e.cuil ? ` · CUIL ${e.cuil}` : ''}`,
+      `<table style="border-collapse:collapse;width:100%"><tr><th style="${td};text-align:left">Concepto</th><th style="${n}">Haberes</th><th style="${n}">Descuentos</th></tr>${filas}
+      <tr><td style="${td};font-weight:bold">Totales</td><td style="${n};font-weight:bold">${fmtMoney(round2(Number(l.bruto) + Number(l.no_remunerativo)))}</td><td style="${n};font-weight:bold">${fmtMoney(round2(Number(l.aportes) + Number(l.descuentos)))}</td></tr></table>
+      <p style="font-size:16px;margin:14px 0 4px">Neto a cobrar: <b>${fmtMoney(Number(l.neto))}</b></p>${l.fecha_pago ? `<p style="color:#64748b;margin:0">Fecha de pago: ${fmtDate(l.fecha_pago)}</p>` : ''}
+      <p style="color:#64748b">Recibo N° ${String(l.recibo_nro).padStart(6, '0')}. Todos tus recibos quedan disponibles en el portal, entrando con este mismo mail.</p>`, { texto: 'Ver mis recibos', url: PORTAL_URL });
+  };
+  const enviarRecibos = (lista: SueldoLiquidacion[]) => run(async () => {
+    const listos = lista.filter((l) => l.estado !== 'preliquidada');
+    const conMail = listos.filter((l) => (l.empleados?.email || '').includes('@'));
+    if (!listos.length) return 'Primero confirmá las liquidaciones: sólo se envían recibos confirmados o pagados.';
+    if (!conMail.length) return 'Ningún empleado tiene mail cargado. Agregalo en la ficha del empleado.';
+    const { error } = await supabase.from('cola_envios').insert(conMail.map((l) => ({ consorcio_id: l.consorcio_id, email: l.empleados!.email, nombre: l.empleados!.nombre, canal: 'mail', asunto: `Recibo de haberes ${periodoLabel(l.periodo)} - ${consorcio!.nombre}`, html: mailRecibo(l) })));
+    if (error) throw new Error(error.message);
+    return `${conMail.length} recibo(s) encolado(s)${listos.length - conMail.length ? `; ${listos.length - conMail.length} sin mail` : ''}. Salen con el próximo procesamiento de Envíos de mail.`;
+  });
   const imprimirRecibo = (l: SueldoLiquidacion) => imprimirHtml(`Recibo ${l.empleados?.nombre} ${l.periodo}`, htmlRecibo(l));
   const imprimirTodos = () => imprimirHtml(`Recibos ${periodo}`, liqsPeriodo.map((l) => `<div style="page-break-after:always">${htmlRecibo(l)}</div>`).join(''));
 
@@ -302,6 +325,8 @@ export function Sueldos() {
               {tab === 'liquidaciones' && <Button onClick={preliquidar} disabled={busy}><Calculator size={15} /> Liquidar el mes</Button>}
               {tab === 'liquidaciones' && consorcios.length > 1 && <Button variant="secondary" onClick={liquidarTodos} disabled={busy}><Layers size={15} /> Todos los consorcios</Button>}
               {liqsPeriodo.length > 0 && <Button variant="secondary" onClick={imprimirTodos}><Printer size={15} /> Recibos</Button>}
+              {liqsPeriodo.some((l) => l.estado !== 'preliquidada') && <Button variant="secondary" onClick={() => enviarRecibos(liqsPeriodo)} disabled={busy}><Send size={15} /> Enviar recibos</Button>}
+              {liqsPeriodo.some((l) => l.estado !== 'preliquidada') && <Button variant="secondary" onClick={() => setLsd(true)}><Download size={15} /> Libro de Sueldos (TXT)</Button>}
               {liqsPeriodo.length > 0 && <Button variant="secondary" onClick={exportarContador}><Download size={15} /> Para el contador</Button>}
             </div>} />
 
@@ -381,6 +406,7 @@ export function Sueldos() {
                   <Td>
                     <div className="flex gap-1 items-center">
                       <button title="Recibo" onClick={() => imprimirRecibo(l)} className="p-1.5 rounded text-slate-500 hover:bg-slate-100"><FileText size={14} /></button>
+                      {l.estado !== 'preliquidada' && <button title={l.empleados?.email ? `Enviar recibo a ${l.empleados.email}` : 'El empleado no tiene mail cargado'} onClick={() => enviarRecibos([l])} className="p-1.5 rounded text-slate-500 hover:bg-slate-100"><Send size={14} /></button>}
                       {l.estado === 'preliquidada' && <>
                         <button title="Novedades" onClick={() => abrirNovedades(l)} className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
                         <Button size="sm" variant="secondary" onClick={() => confirmarLiq(l)}>Confirmar</Button>
@@ -436,7 +462,7 @@ export function Sueldos() {
                     <Td>{e.vive_en_edificio ? 'Sí' : 'No'}</Td>
                     <Td><Badge color={e.activo ? 'green' : 'slate'}>{e.activo ? 'activo' : 'baja'}</Badge></Td>
                     <Td><div className="flex gap-1">
-                      <button onClick={() => { setEditingEmp(e); setEmpForm({ nombre: e.nombre, cuil: e.cuil || '', cargo: e.cargo, categoria: e.categoria || '', usar_escala: e.usar_escala, sueldo_basico: String(e.sueldo_basico), antiguedad_fecha: e.antiguedad_fecha || '', fecha_egreso: e.fecha_egreso || '', vive_en_edificio: e.vive_en_edificio, jornada: e.jornada || 'completa', obra_social: e.obra_social || '', cbu: e.cbu || '', adic_titulo: e.adic_titulo, adic_vidrios: e.adic_vidrios, adic_residuos: e.adic_residuos, adic_jardin: e.adic_jardin, activo: e.activo }); setEmpModal(true); }} className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
+                      <button onClick={() => { setEditingEmp(e); setEmpForm({ nombre: e.nombre, cuil: e.cuil || '', cargo: e.cargo, categoria: e.categoria || '', usar_escala: e.usar_escala, sueldo_basico: String(e.sueldo_basico), antiguedad_fecha: e.antiguedad_fecha || '', fecha_egreso: e.fecha_egreso || '', vive_en_edificio: e.vive_en_edificio, jornada: e.jornada || 'completa', email: e.email || '', obra_social: e.obra_social || '', cbu: e.cbu || '', adic_titulo: e.adic_titulo, adic_vidrios: e.adic_vidrios, adic_residuos: e.adic_residuos, adic_jardin: e.adic_jardin, activo: e.activo }); setEmpModal(true); }} className="p-1.5 rounded text-teal-600 hover:bg-teal-50"><Pencil size={14} /></button>
                       <button onClick={() => setDeleteEmp(e)} className="p-1.5 rounded text-red-400 hover:bg-red-50"><Trash2 size={14} /></button>
                     </div></Td>
                   </tr>
@@ -489,6 +515,7 @@ export function Sueldos() {
       )}
 
       {/* ---------- Modales ---------- */}
+      {lsd && <LibroSueldos consorcio={consorcio} periodo={periodo} liqs={liqsPeriodo} onClose={() => setLsd(false)} onSaved={load} />}
       <Modal open={empModal} onClose={() => setEmpModal(false)} title={editingEmp ? 'Editar empleado' : 'Nuevo empleado'} size="lg">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <div className="col-span-2"><Input label="Nombre y apellido" value={empForm.nombre} onChange={(v) => setEmpForm({ ...empForm, nombre: v })} required /></div>
@@ -502,6 +529,7 @@ export function Sueldos() {
           <Input label="Fecha de egreso" type="date" value={empForm.fecha_egreso} onChange={(v) => setEmpForm({ ...empForm, fecha_egreso: v, activo: v ? false : empForm.activo })} />
           <Input label="Obra social" value={empForm.obra_social} onChange={(v) => setEmpForm({ ...empForm, obra_social: v })} placeholder="OSPERYH" />
           <div className="col-span-2"><Input label="CBU para el pago" value={empForm.cbu} onChange={(v) => setEmpForm({ ...empForm, cbu: v })} /></div>
+          <div className="col-span-2"><Input label="Mail (recibe el recibo y lo ve desde el portal)" type="email" value={empForm.email} onChange={(v) => setEmpForm({ ...empForm, email: v })} /></div>
           <div className="col-span-full grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
             {([['usar_escala', 'Usar básico de escala'], ['adic_titulo', 'Adicional título'], ['adic_vidrios', 'Limpieza de vidrios'], ['adic_residuos', 'Retiro de residuos'], ['adic_jardin', 'Jardín'], ['vive_en_edificio', 'Vive en el edificio'], ['activo', 'Activo']] as [keyof typeof empVacio, string][]).map(([k, l]) => (
               <label key={k} className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={!!empForm[k]} onChange={(e) => setEmpForm({ ...empForm, [k]: e.target.checked })} className="rounded" /> {l}</label>

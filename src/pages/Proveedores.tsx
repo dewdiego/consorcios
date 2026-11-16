@@ -179,7 +179,7 @@ export function Proveedores({ tab: tabInicial }: { tab: 'listado' | 'movimientos
                 return (
                   <tr key={c.id} className="hover:bg-slate-50">
                     <Td className="font-medium">{c.proveedores?.nombre}</Td>
-                    <Td>{c.requerimiento}</Td>
+                    <Td>{c.requerimiento}{c.archivo_url && <a href={c.archivo_url} target="_blank" rel="noreferrer" className="ml-2 text-xs text-teal-600 underline">ver archivo</a>}</Td>
                     <Td>{c.periodo}</Td>
                     <Td className={vencido ? 'text-red-500 font-medium' : ''}>{fmtDate(c.vencimiento)}{vencido && ' ⚠'}</Td>
                     <Td><Badge color={c.validado ? 'green' : 'amber'}>{c.validado ? 'VALIDADO' : 'PENDIENTE'}</Badge></Td>

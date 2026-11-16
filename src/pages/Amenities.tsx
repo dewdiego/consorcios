@@ -37,7 +37,9 @@ export function Amenities() {
 
   const guardar = async () => {
     if (!consorcio || !form || !form.nombre.trim()) return;
-    const fila = { consorcio_id: consorcio.id, nombre: form.nombre.trim(), mensaje: form.mensaje || null, reservable: form.reservable, max_dia: parseInt(form.max_dia) || 1, max_semana: parseInt(form.max_semana) || 1, max_mes: parseInt(form.max_mes) || 1, dias_anticipacion: parseInt(form.dias_anticipacion) || 0, dias_cancelacion: parseInt(form.dias_cancelacion) || 0, costo: parseFloat(form.costo) || 0, horarios: form.horarios };
+    // Si eligió días y horas pero no tocó "Agregar turno", se toma igual: sin horarios no se puede reservar
+    const horarios = form.horarios.length || h.desde >= h.hasta ? form.horarios : h.dias.map((dia) => ({ dia, desde: h.desde, hasta: h.hasta, cupo: parseInt(h.cupo) || 1 })).sort((x, y) => x.dia - y.dia);
+    const fila = { consorcio_id: consorcio.id, nombre: form.nombre.trim(), mensaje: form.mensaje || null, reservable: form.reservable, max_dia: parseInt(form.max_dia) || 1, max_semana: parseInt(form.max_semana) || 1, max_mes: parseInt(form.max_mes) || 1, dias_anticipacion: parseInt(form.dias_anticipacion) || 0, dias_cancelacion: parseInt(form.dias_cancelacion) || 0, costo: parseFloat(form.costo) || 0, horarios };
     const { error } = form.id ? await supabase.from('amenities').update(fila).eq('id', form.id) : await supabase.from('amenities').insert(fila);
     if (error) return setMsg(error.message);
     setForm(null); load();

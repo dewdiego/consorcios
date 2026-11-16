@@ -203,7 +203,7 @@ export type Empleado = {
   categoria: string | null; sueldo_basico: number; antiguedad_fecha: string | null;
   vive_en_edificio: boolean; activo: boolean; created_at: string;
   usar_escala: boolean; adic_titulo: boolean; adic_vidrios: boolean; adic_residuos: boolean; adic_jardin: boolean;
-  obra_social: string | null; cbu: string | null; fecha_egreso: string | null; jornada: string;
+  obra_social: string | null; cbu: string | null; fecha_egreso: string | null; jornada: string; email?: string | null;
 };
 
 export type ReciboLinea = { concepto: string; tipo: 'rem' | 'norem' | 'desc'; monto: number; detalle?: string };

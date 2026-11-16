@@ -12,7 +12,7 @@ export type PageKey =
   | 'config' | 'consorcios' | 'mis_facturas' | 'notificaciones' | 'envios_mail' | 'portal' | 'usuarios' | 'export_datos'
   | 'tablero'
   | 'acciones_masivas'
-  | 'prov_listado' | 'prov_movimientos' | 'prov_documentos'
+  | 'prov_listado' | 'prov_movimientos' | 'prov_documentos' | 'prov_facturas'
   | 'reportes'
   | 'noticias'
   | 'consultas'
@@ -20,7 +20,7 @@ export type PageKey =
   | 'compras'
   | 'unidades'
   | 'mantenimientos' | 'trabajos'
-  | 'exp_cobranzas' | 'exp_ajustes' | 'juicios' | 'infracciones' | 'amenities' | 'reuniones' | 'invitados'
+  | 'solicitudes' | 'conciliar' | 'exp_cobranzas' | 'exp_ajustes' | 'juicios' | 'infracciones' | 'amenities' | 'reuniones' | 'invitados'
   | 'exp_liquidaciones' | 'exp_gastos' | 'exp_provisiones' | 'exp_ordenes_pago' | 'exp_cheques' | 'exp_planes' | 'exp_ctacte'
   | 'sueldos'
   | 'contabilidad'
@@ -40,6 +40,7 @@ const NAV: NavEntry[] = [
     { key: 'notificaciones', label: 'Notificaciones' },
     { key: 'envios_mail', label: 'Envíos de mail' },
     { key: 'portal', label: 'Portal de vecinos' },
+    { key: 'solicitudes', label: 'Pedidos de acceso' },
     { key: 'usuarios', label: 'Usuarios' },
     { key: 'export_datos', label: 'Export datos' },
   ] },
@@ -49,6 +50,7 @@ const NAV: NavEntry[] = [
     { key: 'prov_listado', label: 'Listado' },
     { key: 'prov_movimientos', label: 'Movimientos Históricos' },
     { key: 'prov_documentos', label: 'Documentos' },
+    { key: 'prov_facturas', label: 'Facturas recibidas' },
   ] },
   { label: 'Reportes', icon: <FileBarChart size={17} />, key: 'reportes' },
   { label: 'Noticias', icon: <Megaphone size={17} />, key: 'noticias' },
@@ -76,6 +78,7 @@ const NAV: NavEntry[] = [
   { label: 'Juicios', icon: <Gavel size={17} />, key: 'juicios', porConsorcio: true },
   { label: 'Sueldos', icon: <WalletCards size={17} />, key: 'sueldos', porConsorcio: true },
   { label: 'Contabilidad', icon: <BarChart3 size={17} />, key: 'contabilidad', porConsorcio: true },
+  { label: 'Conciliar extracto', icon: <BarChart3 size={17} />, key: 'conciliar', porConsorcio: true },
   { label: 'Calendario', icon: <CalendarDays size={17} />, key: 'calendario' },
   { label: 'Archivos', icon: <Archive size={17} />, key: 'archivos' },
   { label: 'Teléfonos', icon: <Phone size={17} />, key: 'telefonos' },
@@ -114,6 +117,7 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'compras', label: 'Compras y cotizaciones' },
     { key: 'prov_movimientos', label: 'Movimientos históricos' },
     { key: 'prov_documentos', label: 'Documentación' },
+    { key: 'prov_facturas', label: 'Facturas recibidas' },
   ] },
   { label: 'Mantenimiento', icon: <Wrench size={17} />, porConsorcio: true, children: [
     { key: 'reclamos', label: 'Reclamos' },
@@ -132,10 +136,12 @@ const NAV_AMEL: NavEntry[] = [
     { key: 'consultas', label: 'Consultas' },
     { key: 'encuestas', label: 'Encuestas' },
     { key: 'portal', label: 'Portal de vecinos' },
+    { key: 'solicitudes', label: 'Pedidos de acceso' },
     { key: 'envios_mail', label: 'Envíos de mail' },
   ] },
   { label: 'Contabilidad y sueldos', icon: <BarChart3 size={17} />, children: [
     { key: 'contabilidad', label: 'Contabilidad' },
+    { key: 'conciliar', label: 'Conciliar con extracto' },
     { key: 'sueldos', label: 'Sueldos' },
     { key: 'reportes', label: 'Reportes' },
   ] },
@@ -152,10 +158,10 @@ export const PAGE_TITLES: Record<PageKey, string> = {
   config: 'Configuración', consorcios: 'Consorcios', mis_facturas: 'Mis Facturas',
   notificaciones: 'Notificaciones', envios_mail: 'Envíos de mail', portal: 'Portal de vecinos', usuarios: 'Usuarios', export_datos: 'Export de datos',
   tablero: 'Tablero de control', acciones_masivas: 'Acciones masivas',
-  prov_listado: 'Proveedores', prov_movimientos: 'Movimientos históricos', prov_documentos: 'Certificación de proveedores',
+  prov_listado: 'Proveedores', prov_movimientos: 'Movimientos históricos', prov_documentos: 'Certificación de proveedores', prov_facturas: 'Facturas recibidas',
   reportes: 'Reportes', noticias: 'Noticias', consultas: 'Consultas', reclamos: 'Reclamos', compras: 'Compras',
   unidades: 'Unidades', mantenimientos: 'Mantenimientos y controles', trabajos: 'Trabajos en unidades',
-  exp_cobranzas: 'Cobranzas', exp_ajustes: 'Ajustes por unidad', juicios: 'Juicios', infracciones: 'Infracciones', amenities: 'Amenities y reservas', reuniones: 'Reuniones', invitados: 'Invitados y accesos',
+  solicitudes: 'Pedidos de acceso', conciliar: 'Conciliación con extracto', exp_cobranzas: 'Cobranzas', exp_ajustes: 'Ajustes por unidad', juicios: 'Juicios', infracciones: 'Infracciones', amenities: 'Amenities y reservas', reuniones: 'Reuniones', invitados: 'Invitados y accesos',
   exp_liquidaciones: 'Expensas · Liquidaciones', exp_gastos: 'Gastos pendientes', exp_provisiones: 'Provisiones',
   exp_ordenes_pago: 'Pago a proveedores', exp_cheques: 'Gestión de cheques', exp_planes: 'Planes de pago',
   exp_ctacte: 'Cuentas corrientes', sueldos: 'Sueldos', contabilidad: 'Contabilidad',

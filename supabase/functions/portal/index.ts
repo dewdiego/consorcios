@@ -37,10 +37,62 @@ async function unidadesDe(sb: ReturnType<typeof createClient>, email: string) {
   }[];
 }
 
+/** Recibos de sueldo del empleado que entra con su mail (confirmados o pagados). */
+async function recibosDe(sb: ReturnType<typeof createClient>, email: string) {
+  const { data: emps } = await sb.from('empleados').select('id, nombre, cuil, cargo, categoria, consorcios(nombre, cuit)').ilike('email', email.trim().toLowerCase());
+  if (!emps?.length) return [];
+  const { data: liqs } = await sb.from('sueldo_liquidaciones').select('id, empleado_id, periodo, bruto, no_remunerativo, aportes, descuentos, neto, detalle, fecha_pago, recibo_nro, estado, observaciones')
+    .in('empleado_id', emps.map((e) => e.id)).neq('estado', 'preliquidada').order('periodo', { ascending: false }).limit(36);
+  return (liqs || []).map((l) => {
+    const e = emps.find((x) => x.id === l.empleado_id)!; const c = e.consorcios as unknown as { nombre: string; cuit: string | null } | null;
+    return { ...l, empleado: e.nombre, cuil: e.cuil, cargo: e.cargo, categoria: e.categoria, consorcio: c?.nombre || '', consorcio_cuit: c?.cuit || null };
+  });
+}
+
+/** Sube al storage un archivo que llega en base64 (foto o PDF, hasta 6 MB). Devuelve la ruta o un error para mostrar. */
+async function subirArchivo(sb: ReturnType<typeof createClient>, carpeta: string, arch: { nombre?: string; tipo?: string; base64?: string } | undefined): Promise<{ path: string | null; error?: string }> {
+  if (!arch?.base64) return { path: null };
+  const bin = Uint8Array.from(atob(arch.base64), (c) => c.charCodeAt(0));
+  if (bin.length > 6 * 1024 * 1024) return { path: null, error: 'El archivo pesa más de 6 MB.' };
+  if (!/^(image\/|application\/pdf)/.test(arch.tipo || '')) return { path: null, error: 'El archivo tiene que ser una foto o un PDF.' };
+  const path = `${carpeta}/${Date.now()}_${String(arch.nombre || 'archivo').replace(/[^\w.\-]/g, '_').slice(-60)}`;
+  const { error } = await sb.storage.from('archivos').upload(path, bin, { contentType: arch.tipo });
+  return error ? { path: null, error: `No se pudo subir el archivo: ${error.message}` } : { path };
+}
+
+/** Proveedores activos que tienen cargado ese mail. */
+async function proveedoresDe(sb: ReturnType<typeof createClient>, email: string) {
+  const { data } = await sb.from('proveedores').select('id, nombre, cuit, administracion_id').ilike('email', email.trim().toLowerCase()).eq('activo', true);
+  return (data || []) as { id: string; nombre: string; cuit: string | null; administracion_id: string | null }[];
+}
+
+/** Lo que ve un proveedor: edificios de su administradora, sus órdenes de pago, las facturas que cargó y la documentación pedida. */
+async function proveedorDe(sb: ReturnType<typeof createClient>, email: string) {
+  const provs = await proveedoresDe(sb, email);
+  if (!provs.length) return null;
+  const ids = provs.map((p) => p.id); const adms = [...new Set(provs.map((p) => p.administracion_id).filter(Boolean))] as string[];
+  const [{ data: cons }, { data: ops }, { data: facs }, { data: docs }] = await Promise.all([
+    adms.length ? sb.from('consorcios').select('id, nombre').in('administracion_id', adms).eq('activo', true).order('nombre') : Promise.resolve({ data: [] }),
+    sb.from('ordenes_pago').select('id, numero, fecha, monto, metodo, estado, consorcios(nombre)').in('proveedor_id', ids).neq('estado', 'anulada').order('fecha', { ascending: false }).limit(60),
+    sb.from('proveedor_facturas').select('id, fecha, tipo_comprobante, comprobante, monto, descripcion, estado, motivo, archivo_path, consorcios(nombre)').in('proveedor_id', ids).order('created_at', { ascending: false }).limit(60),
+    sb.from('proveedor_certificaciones').select('id, requerimiento, periodo, vencimiento, validado, archivo_url').in('proveedor_id', ids).order('periodo', { ascending: false }).limit(60),
+  ]);
+  const nom = (x: { consorcios?: unknown }) => (x.consorcios as { nombre: string } | null)?.nombre || '';
+  return { nombre: provs.map((p) => p.nombre).join(' / '), consorcios: cons || [],
+    ordenes: (ops || []).map((o) => ({ ...o, consorcio: nom(o), consorcios: undefined })),
+    facturas: (facs || []).map((f) => ({ ...f, consorcio: nom(f), consorcios: undefined, archivo_url: f.archivo_path ? sb.storage.from('archivos').getPublicUrl(f.archivo_path).data.publicUrl : null })),
+    documentos: docs || [] };
+}
+
 /** Todo lo que ve un vecino en el portal: unidades con su última expensa, comunicados, info útil. */
 async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
     const us = await unidadesDe(sb, email);
-    if (us.length === 0) return { error: 'Tu mail ya no figura en ninguna unidad.' };
+    const [recibos, proveedor] = await Promise.all([recibosDe(sb, email), proveedorDe(sb, email)]);
+    if (us.length === 0) {
+      // Empleado o proveedor sin unidad a su nombre: entra sólo a lo suyo
+      if (!recibos.length && !proveedor) return { error: 'Tu mail ya no figura en ninguna unidad.' };
+      return { email, unidades: [], comunicados: [], dispositivos: 0, administracion: null, info: [], telefonos: [], trabajos: [], informados: [], amenities: [], ocupacion: [], reservas: [], infracciones: [], reuniones: [], recibos, proveedor };
+    }
     const consorcioIds = [...new Set(us.map((u) => u.consorcio_id))];
     // Administraciones de esos consorcios: lo "general" (sin consorcio) se filtra por ellas, para no mezclar administradoras
     const admIds = [...new Set(us.map((u) => u.consorcios?.administracion_id).filter(Boolean))] as string[];
@@ -138,7 +190,7 @@ async function datosDe(sb: ReturnType<typeof createClient>, email: string) {
       informados: (informados || []).map((p) => ({ ...p, unidad: ufDe(p.unidad_id) })),
       amenities: (amen || []).map((a) => ({ ...a, consorcio: nombreCons(a.consorcio_id) })), ocupacion, reservas: misReservas,
       infracciones: (infr || []).map((i) => ({ ...i, unidad: ufDe(i.unidad_id) })),
-      reuniones: (reun || []).map((r) => ({ ...r, consorcio: nombreCons(r.consorcio_id) })) };
+      reuniones: (reun || []).map((r) => ({ ...r, consorcio: nombreCons(r.consorcio_id) })), recibos, proveedor };
 }
 
 Deno.serve(async (req) => {
@@ -154,8 +206,34 @@ Deno.serve(async (req) => {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email.includes('@')) return json({ ok: false, error: 'Ingresá un mail válido.' });
     const us = await unidadesDe(sb, email);
-    if (us.length === 0) return json({ ok: false, error: 'Ese mail no figura en ninguna unidad. Pedile a la administración que lo cargue.' });
+    if (us.length === 0) {
+      const { count: emp } = await sb.from('empleados').select('id', { count: 'exact', head: true }).ilike('email', email);
+      const count = (emp || 0) + (await proveedoresDe(sb, email)).length;
+      if (!count) return json({ ok: false, error: 'Ese mail no figura en ninguna unidad. Pedile a la administración que lo cargue.' });
+      return json({ ok: true, consorcios: [] });
+    }
     return json({ ok: true, consorcios: [...new Set(us.map((u) => u.consorcios?.nombre))] });
+  }
+
+  if (accion === 'pedir-acceso') {
+    // Sin sesión: el vecino que no figura con su mail pide acceso con el código del edificio. Queda a aprobar por la administración.
+    const email = String(body.email || '').trim().toLowerCase();
+    const codigo = String(body.codigo || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const nombre = String(body.nombre || '').trim().slice(0, 80); const comentario = String(body.comentario || '').trim().slice(0, 200);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ ok: false, error: 'Ingresá un mail válido.' });
+    if (codigo.length < 4) return json({ ok: false, error: 'Escribí el código del edificio que te pasó la administración.' });
+    if (!nombre || !comentario) return json({ ok: false, error: 'Completá tu nombre y tu depto o lote.' });
+    const { data: cons } = await sb.from('consorcios').select('id, nombre, administracion_id').ilike('codigo_acceso', codigo).maybeSingle();
+    if (!cons) return json({ ok: false, error: 'Ese código no corresponde a ningún edificio. Revisalo con la administración.' });
+    const { count } = await sb.from('solicitudes_acceso').select('id', { count: 'exact', head: true }).eq('consorcio_id', cons.id).ilike('email', email).eq('estado', 'pendiente');
+    if (!count) {
+      const { count: total } = await sb.from('solicitudes_acceso').select('id', { count: 'exact', head: true }).eq('consorcio_id', cons.id).eq('estado', 'pendiente');
+      if ((total || 0) >= 200) return json({ ok: false, error: 'Hay demasiados pedidos pendientes. Comunicate con la administración.' });
+      const { error } = await sb.from('solicitudes_acceso').insert({ consorcio_id: cons.id, email, nombre, comentario });
+      if (error) return json({ ok: false, error: error.message });
+      await sb.from('notificaciones').insert({ tipo: 'info', titulo: `Pedido de acceso al portal · ${cons.nombre}`, detalle: `${nombre} (${email}) · ${comentario}. Aprobalo en Comunicación → Pedidos de acceso.`, administracion_id: cons.administracion_id || null });
+    }
+    return json({ ok: true, consorcio: cons.nombre });
   }
 
   // ---- Acciones con sesión: el usuario viene en el JWT ----
@@ -278,6 +356,39 @@ Deno.serve(async (req) => {
     const { error } = await sb.from('infracciones').update({ estado: 'en_revision', descargo: texto, descargo_at: new Date().toISOString(), descargo_por: email }).eq('id', i.id);
     if (error) return json({ error: error.message }, 500);
     await sb.from('notificaciones').insert({ tipo: 'alerta', titulo: `Descargo presentado · UF ${un?.uf} ${un?.depto} · ${un?.consorcios?.nombre || ''}`, detalle: `${i.descripcion} — "${texto.slice(0, 200)}"`, administracion_id: un?.consorcios?.administracion_id || null });
+    return json({ ok: true });
+  }
+
+  if (accion === 'proveedor-factura') {
+    // El proveedor carga su factura: la administración la recibe y la pasa a gasto
+    const provs = await proveedoresDe(sb, email);
+    if (!provs.length) return json({ error: 'Tu mail no figura como proveedor.' }, 403);
+    const { data: cons } = await sb.from('consorcios').select('id, nombre, administracion_id').eq('id', String(body.consorcio_id || '')).maybeSingle();
+    const prov = provs.find((p) => p.administracion_id && p.administracion_id === cons?.administracion_id);
+    if (!cons || !prov) return json({ error: 'Elegí el edificio al que le facturás.' }, 400);
+    const monto = Number(String(body.monto ?? '').replace(',', '.')); const fecha = String(body.fecha || '');
+    if (!(monto > 0)) return json({ error: 'Poné el importe total de la factura.' }, 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return json({ error: 'Indicá la fecha de la factura.' }, 400);
+    const up = await subirArchivo(sb, `facturas_proveedor/${cons.id}`, body.archivo as { nombre?: string; tipo?: string; base64?: string } | undefined);
+    if (up.error) return json({ error: up.error }, 400);
+    if (!up.path) return json({ error: 'Adjuntá la factura (foto o PDF).' }, 400);
+    const { error } = await sb.from('proveedor_facturas').insert({ proveedor_id: prov.id, consorcio_id: cons.id, fecha, monto, tipo_comprobante: String(body.tipo || 'Factura C').slice(0, 30), comprobante: String(body.numero || '').trim().slice(0, 30) || null, descripcion: String(body.descripcion || '').trim().slice(0, 300) || null, archivo_path: up.path, email });
+    if (error) return json({ error: error.message }, 500);
+    await sb.from('notificaciones').insert({ tipo: 'info', titulo: `Factura de proveedor · ${prov.nombre} · ${cons.nombre}`, detalle: `$ ${monto.toLocaleString('es-AR')}. Revisala en Proveedores y pagos → Facturas recibidas.`, administracion_id: cons.administracion_id || null });
+    return json({ ok: true });
+  }
+
+  if (accion === 'proveedor-documento') {
+    // El proveedor sube la documentación que le pidieron (seguro, ART, matrícula): queda a validar
+    const provs = await proveedoresDe(sb, email);
+    const { data: c } = await sb.from('proveedor_certificaciones').select('id, proveedor_id, requerimiento').eq('id', String(body.id || '')).maybeSingle();
+    const prov = provs.find((p) => p.id === c?.proveedor_id);
+    if (!c || !prov) return json({ error: 'Ese requerimiento no es tuyo.' }, 403);
+    const up = await subirArchivo(sb, `proveedores/${prov.id}`, body.archivo as { nombre?: string; tipo?: string; base64?: string } | undefined);
+    if (up.error || !up.path) return json({ error: up.error || 'Adjuntá el archivo.' }, 400);
+    const { error } = await sb.from('proveedor_certificaciones').update({ archivo_url: sb.storage.from('archivos').getPublicUrl(up.path).data.publicUrl, validado: false, validado_por: null }).eq('id', c.id);
+    if (error) return json({ error: error.message }, 500);
+    await sb.from('notificaciones').insert({ tipo: 'info', titulo: `Documentación de proveedor · ${prov.nombre}`, detalle: `Subió "${c.requerimiento}". Validala en Proveedores → Documentación.`, administracion_id: prov.administracion_id });
     return json({ ok: true });
   }
 

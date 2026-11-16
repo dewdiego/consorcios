@@ -182,3 +182,75 @@ ALTER TABLE movimientos DROP CONSTRAINT IF EXISTS movimientos_origen_check;
 ALTER TABLE movimientos ADD CONSTRAINT movimientos_origen_check
   CHECK (origen IN ('manual','pago','orden_pago','sueldo','transferencia','retencion','ajuste','no_identificado','gasto'));
 ALTER TABLE consorcios ADD COLUMN IF NOT EXISTS url_reglamento text;   -- link al reglamento de copropiedad: sale con QR en la expensa
+
+-- ==================== Tanda 3: conciliación con extracto importado ====================
+CREATE TABLE IF NOT EXISTS extracto_lineas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  consorcio_id uuid NOT NULL REFERENCES consorcios(id) ON DELETE CASCADE,
+  cuenta_id uuid NOT NULL REFERENCES cuentas(id) ON DELETE CASCADE,
+  fecha date NOT NULL,
+  descripcion text NOT NULL DEFAULT '',
+  monto numeric(14,2) NOT NULL,                    -- con signo: + entra plata, − sale
+  estado text NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','conciliado','ignorado')),
+  movimiento_ids uuid[] NOT NULL DEFAULT '{}',     -- movimientos del sistema con los que quedó conciliada
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (cuenta_id, fecha, descripcion, monto)    -- volver a importar el mismo extracto no duplica
+);
+CREATE INDEX IF NOT EXISTS idx_extracto_cuenta ON extracto_lineas(cuenta_id, estado);
+-- Agrupadores: "cuando el banco dice X, en el sistema se llama Y"
+CREATE TABLE IF NOT EXISTS extracto_agrupadores (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  administracion_id uuid DEFAULT mi_administracion(),
+  patron text NOT NULL,
+  concepto text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE extracto_lineas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_all_extracto_lineas" ON extracto_lineas;
+CREATE POLICY "admin_all_extracto_lineas" ON extracto_lineas FOR ALL TO authenticated USING (es_admin() AND consorcio_visible(consorcio_id)) WITH CHECK (es_admin() AND consorcio_visible(consorcio_id));
+ALTER TABLE extracto_agrupadores ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_all_extracto_agrupadores" ON extracto_agrupadores;
+CREATE POLICY "admin_all_extracto_agrupadores" ON extracto_agrupadores FOR ALL TO authenticated USING (adm_visible(administracion_id)) WITH CHECK (adm_visible(administracion_id));
+
+-- ==================== Tanda 4: mail del empleado (recibe el recibo y lo ve en el portal) ====================
+ALTER TABLE empleados ADD COLUMN IF NOT EXISTS email text;
+
+-- ==================== Tanda 5: pedido de acceso al portal con el código del edificio ====================
+ALTER TABLE consorcios ADD COLUMN IF NOT EXISTS codigo_acceso text;
+CREATE UNIQUE INDEX IF NOT EXISTS consorcios_codigo_acceso_unico ON consorcios (upper(codigo_acceso)) WHERE codigo_acceso IS NOT NULL;
+CREATE TABLE IF NOT EXISTS solicitudes_acceso (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  consorcio_id uuid NOT NULL REFERENCES consorcios(id) ON DELETE CASCADE,
+  email text NOT NULL, nombre text, comentario text,
+  estado text NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','aprobada','rechazada')),
+  unidad_id uuid REFERENCES unidades(id) ON DELETE SET NULL,
+  rol text CHECK (rol IN ('propietario','inquilino')),
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE solicitudes_acceso ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_all_solicitudes_acceso" ON solicitudes_acceso;
+CREATE POLICY "admin_all_solicitudes_acceso" ON solicitudes_acceso FOR ALL TO authenticated USING (es_admin() AND consorcio_visible(consorcio_id)) WITH CHECK (es_admin() AND consorcio_visible(consorcio_id));
+
+-- ==================== Tanda 6: acceso de proveedores al portal (facturas, órdenes de pago, documentación) ====================
+CREATE TABLE IF NOT EXISTS proveedor_facturas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  proveedor_id uuid NOT NULL REFERENCES proveedores(id) ON DELETE CASCADE,
+  consorcio_id uuid NOT NULL REFERENCES consorcios(id) ON DELETE CASCADE,
+  fecha date NOT NULL,
+  tipo_comprobante text NOT NULL DEFAULT 'Factura C',
+  comprobante text,
+  monto numeric(14,2) NOT NULL CHECK (monto > 0),
+  descripcion text,
+  archivo_path text,
+  estado text NOT NULL DEFAULT 'recibida' CHECK (estado IN ('recibida','cargada','rechazada')),
+  motivo text,
+  gasto_id uuid REFERENCES gastos(id) ON DELETE SET NULL,
+  email text,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE proveedor_facturas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_all_proveedor_facturas" ON proveedor_facturas;
+CREATE POLICY "admin_all_proveedor_facturas" ON proveedor_facturas FOR ALL TO authenticated USING (es_admin() AND consorcio_visible(consorcio_id)) WITH CHECK (es_admin() AND consorcio_visible(consorcio_id));
+
+-- ==================== Libro de Sueldos Digital: datos de cada empleado para la DJ F931 ====================
+ALTER TABLE empleados ADD COLUMN IF NOT EXISTS datos_f931 jsonb NOT NULL DEFAULT '{}'::jsonb;
