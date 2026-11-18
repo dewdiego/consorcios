@@ -295,7 +295,7 @@ export function Sueldos() {
     return `${conMail.length} recibo(s) encolado(s)${listos.length - conMail.length ? `; ${listos.length - conMail.length} sin mail` : ''}. Salen con el próximo procesamiento de Envíos de mail.`;
   });
   const imprimirRecibo = (l: SueldoLiquidacion) => imprimirHtml(`Recibo ${l.empleados?.nombre} ${l.periodo}`, htmlRecibo(l));
-  const imprimirTodos = () => imprimirHtml(`Recibos ${periodo}`, liqsPeriodo.map((l) => `<div style="page-break-after:always">${htmlRecibo(l)}</div>`).join(''));
+  const imprimirTodos = () => imprimirHtml(`Recibos ${periodo}`, liqsPeriodo.map((l) => `<div class="salto">${htmlRecibo(l)}</div>`).join(''));
 
   const exportarContador = () => exportCSV(`sueldos_${consorcio?.nombre}_${periodo}.csv`,
     ['Período', 'Empleado', 'CUIL', 'Cargo', 'Categoría', 'Ingreso', 'Básico', 'Antigüedad', 'Adic. convenio', 'Adicionales', 'Hs 50%', 'Hs 100%', 'Horas extras $', 'SAC', 'Vacaciones $', 'Días vac.', 'Bruto', 'Aportes', 'No remunerativo', 'Otros desc.', 'Neto', 'Contribuciones', 'Costo total', 'Estado', 'Fecha pago'],

@@ -8,13 +8,20 @@ type Opciones = {
 
 /** Abre una ventana con el HTML listo para imprimir / guardar como PDF (Ctrl+P → Guardar como PDF). */
 export function imprimirHtml(titulo: string, cuerpo: string, extraCss = '', opciones: Opciones = {}) {
+  // Con margen de página en 0 el navegador no agrega su fecha, hora, título ni dirección. El margen real lo da una tabla
+  // cuyo encabezado y pie (vacíos) se repiten en cada hoja. Quien define su propio @page ya maneja sus márgenes.
+  const propio = extraCss.includes('@page');
+  if (!propio) cuerpo = `<table class="pag"><thead><tr><td class="pag-m"></td></tr></thead><tfoot><tr><td class="pag-m"></td></tr></tfoot><tbody><tr><td class="pag-c">${cuerpo}</td></tr></tbody></table>`;
   const w = window.open('', '_blank', 'width=900,height=1000');
   if (!w) { alert('El navegador bloqueó la ventana de impresión. Permití ventanas emergentes para este sitio.'); return; }
   (w as unknown as { __onGuardar?: Opciones['onGuardar']; __generarPdf?: Opciones['generarPdf'] }).__onGuardar = opciones.onGuardar;
   (w as unknown as { __generarPdf?: Opciones['generarPdf'] }).__generarPdf = opciones.generarPdf;
   w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title>
 <style>
-  @page { size: A4; margin: 18mm 16mm; }
+  @page { size: A4; margin: 0; }
+  table.pag { width: 100%; border-collapse: collapse; margin: 0; } table.pag > thead > tr > td, table.pag > tfoot > tr > td { height: 14mm; padding: 0; border: 0; }
+  table.pag > tbody > tr > td.pag-c { padding: 0 16mm; border: 0; vertical-align: top; }
+  .salto { page-break-after: always; } .salto:last-child { page-break-after: auto; }
   * { box-sizing: border-box; }
   body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 12px; margin: 0; padding: 24px; }
   h1 { font-size: 18px; margin: 0 0 4px; } h2 { font-size: 14px; margin: 18px 0 6px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; }
@@ -37,6 +44,7 @@ export function imprimirHtml(titulo: string, cuerpo: string, extraCss = '', opci
   .btn.sec2 { background: #1e2a4a; } .btn:disabled { opacity: .6; }
   .aviso { position: fixed; top: 50px; right: 10px; background: #1e293b; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 12px; display: none; z-index: 50; }
   @media print { .btns, .aviso { display: none !important; } body { padding: 0; } }
+  @media screen { table.pag > thead > tr > td, table.pag > tfoot > tr > td { height: 0; } table.pag > tbody > tr > td.pag-c { padding: 0; } }
   ${extraCss}
 </style></head><body>
 <div class="btns">
